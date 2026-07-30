@@ -1,8 +1,5 @@
 {
   "profiles": {
-    "AirBlade (Package)": {
-      "commandName": "MsixPackage"
-    },
     "AirBlade (Unpackaged)": {
       "commandName": "Project"
     }

@@ -12,6 +12,9 @@
     <WinUISDKReferences>false</WinUISDKReferences>
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
+
+	<!-- 强制指定为未打包模式 -->
+	<WindowsPackageType>None</WindowsPackageType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -57,4 +60,14 @@
     <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
     <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
   </PropertyGroup>
+
+  <!-- 在编译前自动将 Rust 编译出的 DLL 复制到 output 目录 -->
+  <ItemGroup>
+	<None Include="..\airplay_core\target\debug\airplay_core.dll" Link="airplay_core.dll" Condition="'$(Configuration)' == 'Debug'">
+	  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	</None>
+	<None Include="..\airplay_core\target\release\airplay_core.dll" Link="airplay_core.dll" Condition="'$(Configuration)' == 'Release'">
+	  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	</None>
+  </ItemGroup>
 </Project>
