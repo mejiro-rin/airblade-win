@@ -45,6 +45,18 @@ impl Session {
     pub fn begin_pairing(&mut self) -> Result<()> {
         self.transition(SessionState::Idle, SessionState::Pairing)
     }
+    /// 用户显式发起连接，可以从初始、已断开或失败状态重新开始配对。
+    pub fn begin_connection(&mut self) -> Result<()> {
+        if !matches!(
+            self.state,
+            SessionState::Idle | SessionState::Stopped | SessionState::Failed
+        ) {
+            return Err(CoreError::InvalidState("session already connected"));
+        }
+        self.state = SessionState::Pairing;
+        self.events.push_back(SessionEvent::State(self.state));
+        Ok(())
+    }
     pub fn pairing_verified(&mut self) -> Result<()> {
         self.transition(SessionState::Pairing, SessionState::Connecting)
     }
@@ -144,5 +156,14 @@ mod tests {
             session.pop_event(),
             Some(SessionEvent::State(SessionState::Connecting))
         );
+    }
+
+    #[test]
+    fn explicit_connect_can_restart_stopped_session() {
+        let mut session = Session::default();
+        session.begin_pairing().unwrap();
+        session.stop();
+        session.begin_connection().unwrap();
+        assert_eq!(session.state(), SessionState::Pairing);
     }
 }

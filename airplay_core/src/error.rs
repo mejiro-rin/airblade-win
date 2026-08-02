@@ -27,3 +27,33 @@ pub enum CoreError {
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;
+
+/// 稳定 C ABI 使用的错误码。导出函数返回值和异步错误事件共用这一映射。
+pub fn abi_error_code(error: &CoreError) -> i32 {
+    match error {
+        CoreError::InvalidArgument => -1,
+        CoreError::InvalidState(_) => -2,
+        CoreError::Protocol(_) => -3,
+        CoreError::Authentication => -4,
+        CoreError::Network(_) => -5,
+        CoreError::Discovery(_) => -6,
+        CoreError::PairingStatus(_) => -7,
+        CoreError::PairingTlv(_) => -8,
+        CoreError::RtspStatus(_, _) => -9,
+        CoreError::RtspBody(_) => -10,
+        CoreError::Windows(_) => -11,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn abi_error_codes_are_stable() {
+        assert_eq!(abi_error_code(&CoreError::InvalidArgument), -1);
+        assert_eq!(abi_error_code(&CoreError::Authentication), -4);
+        assert_eq!(abi_error_code(&CoreError::RtspStatus("SETUP", 453)), -9);
+        assert_eq!(abi_error_code(&CoreError::RtspBody("INFO")), -10);
+    }
+}

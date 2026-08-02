@@ -19,7 +19,7 @@ use crate::{
         InputPcmFormat, PcmConverter, WasapiCapture, create_ring, processing::f32_to_i16,
         run_capture_loop,
     },
-    error::{CoreError, Result},
+    error::{CoreError, Result, abi_error_code},
     event_channel::RemoteEvent,
     pairing_client::open_transient_control,
 };
@@ -27,6 +27,28 @@ use crate::{
 pub enum EngineCommand {
     SetVolume(f32),
     Stop,
+}
+
+/// 连接策略由调用方按设备保存；核心不会持久化任何 UI 偏好。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum ConnectionPolicy {
+    /// 默认策略。连接失败或断开后等待用户下一次 connect。
+    Manual = 0,
+    /// 仅对明确的暂时性网络故障进行有限次数重试。
+    Automatic = 1,
+}
+
+impl TryFrom<i32> for ConnectionPolicy {
+    type Error = CoreError;
+
+    fn try_from(value: i32) -> Result<Self> {
+        match value {
+            0 => Ok(Self::Manual),
+            1 => Ok(Self::Automatic),
+            _ => Err(CoreError::InvalidArgument),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,7 +70,7 @@ pub struct SenderEngine {
 }
 
 impl SenderEngine {
-    pub fn start(address: SocketAddr) -> Result<Self> {
+    pub fn start(address: SocketAddr, policy: ConnectionPolicy) -> Result<Self> {
         let capture = WasapiCapture::new()?;
         let input_format = capture.format;
         let capacity = input_format.sample_rate as usize * input_format.channels * 3;
@@ -75,6 +97,7 @@ impl SenderEngine {
                 let mut consumer = consumer;
                 run_with_reconnect(
                     address,
+                    policy,
                     input_format,
                     &mut consumer,
                     command_rx,
@@ -130,6 +153,7 @@ impl Drop for SenderEngine {
 
 fn run_with_reconnect(
     address: SocketAddr,
+    policy: ConnectionPolicy,
     input_format: InputPcmFormat,
     consumer: &mut HeapCons<f32>,
     commands: Receiver<EngineCommand>,
@@ -147,16 +171,40 @@ fn run_with_reconnect(
             running.clone(),
         ) {
             Ok(()) => return,
-            Err(error) if running.load(Ordering::Acquire) => {
-                events.send(EngineEvent::Error(error_code(&error))).ok();
+            Err(error)
+                if running.load(Ordering::Acquire) && should_retry(policy, &error, retry) =>
+            {
+                // 只有暂时性网络故障才允许自动重试，避免与其他发送端争抢播放权。
                 events.send(EngineEvent::Reconnecting).ok();
                 retry = retry.saturating_add(1);
                 let delay_ms = 500_u64.saturating_mul(1_u64 << retry.min(4));
                 wait_for_retry(&commands, &running, Duration::from_millis(delay_ms));
             }
+            Err(error) if running.load(Ordering::Acquire) => {
+                events.send(EngineEvent::Error(abi_error_code(&error))).ok();
+                return;
+            }
             Err(_) => return,
         }
     }
+}
+
+/// 自动模式最多尝试三次，并只接受不会暗示接收端拒绝或已被接管的网络错误。
+fn should_retry(policy: ConnectionPolicy, error: &CoreError, retry: u32) -> bool {
+    if policy != ConnectionPolicy::Automatic || retry >= 3 {
+        return false;
+    }
+    matches!(
+        error,
+        CoreError::Network(io)
+            if matches!(
+                io.kind(),
+                std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::AddrNotAvailable
+                    | std::io::ErrorKind::NetworkUnreachable
+                    | std::io::ErrorKind::HostUnreachable
+            )
+    )
 }
 
 /// 重连等待期间仍然响应停止命令，避免关闭应用时最多卡住八秒。
@@ -253,16 +301,41 @@ fn run_protocol(
     Ok(())
 }
 
-fn error_code(error: &CoreError) -> i32 {
-    match error {
-        CoreError::InvalidArgument => -1,
-        CoreError::InvalidState(_) => -2,
-        CoreError::Protocol(_) | CoreError::RtspBody(_) => -3,
-        CoreError::Authentication => -4,
-        CoreError::Network(_) | CoreError::Windows(_) => -5,
-        CoreError::Discovery(_) => -6,
-        CoreError::PairingStatus(_) => -7,
-        CoreError::PairingTlv(_) => -8,
-        CoreError::RtspStatus(_, _) => -9,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manual_policy_never_retries() {
+        let error = CoreError::Network(std::io::Error::from(std::io::ErrorKind::TimedOut));
+        assert!(!should_retry(ConnectionPolicy::Manual, &error, 0));
+    }
+
+    #[test]
+    fn automatic_policy_only_retries_transient_network_errors() {
+        let timeout = CoreError::Network(std::io::Error::from(std::io::ErrorKind::TimedOut));
+        let reset = CoreError::Network(std::io::Error::from(std::io::ErrorKind::ConnectionReset));
+        assert!(should_retry(ConnectionPolicy::Automatic, &timeout, 0));
+        assert!(!should_retry(ConnectionPolicy::Automatic, &reset, 0));
+        assert!(!should_retry(
+            ConnectionPolicy::Automatic,
+            &CoreError::Authentication,
+            0
+        ));
+        assert!(!should_retry(
+            ConnectionPolicy::Automatic,
+            &CoreError::Protocol("bad"),
+            0
+        ));
+        assert!(!should_retry(ConnectionPolicy::Automatic, &timeout, 3));
+    }
+
+    #[test]
+    fn stop_during_retry_cancels_wait() {
+        let (sender, receiver) = mpsc::channel();
+        let running = AtomicBool::new(true);
+        sender.send(EngineCommand::Stop).unwrap();
+        wait_for_retry(&receiver, &running, Duration::from_secs(1));
+        assert!(!running.load(Ordering::Acquire));
     }
 }

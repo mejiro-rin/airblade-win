@@ -3,8 +3,8 @@
 
 use crate::{
     discovery::discover_homepods,
-    engine::{EngineEvent, SenderEngine},
-    error::CoreError,
+    engine::{ConnectionPolicy, EngineEvent, SenderEngine},
+    error::{CoreError, abi_error_code},
     session::{Session, SessionEvent, SessionState},
 };
 use std::{
@@ -18,10 +18,8 @@ use std::{
 };
 
 const OK: i32 = 0;
+#[cfg(test)]
 const ERR_ARGUMENT: i32 = -1;
-const ERR_STATE: i32 = -2;
-const ERR_PROTOCOL: i32 = -3;
-const ERR_AUTH: i32 = -4;
 const ERR_PANIC: i32 = -127;
 
 #[repr(C)]
@@ -45,6 +43,7 @@ struct Registry {
     next: u64,
     sessions: HashMap<u64, Session>,
     engines: HashMap<u64, SenderEngine>,
+    policies: HashMap<u64, ConnectionPolicy>,
 }
 
 static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
@@ -59,19 +58,7 @@ fn registry() -> &'static Mutex<Registry> {
 }
 
 fn code(error: CoreError) -> i32 {
-    match error {
-        CoreError::InvalidArgument => ERR_ARGUMENT,
-        CoreError::InvalidState(_) => ERR_STATE,
-        CoreError::Protocol(_) => ERR_PROTOCOL,
-        CoreError::Authentication => ERR_AUTH,
-        CoreError::Network(_) => -5,
-        CoreError::Discovery(_) => -6,
-        CoreError::PairingStatus(_) => -7,
-        CoreError::PairingTlv(_) => -8,
-        CoreError::RtspStatus(_, _) => -9,
-        CoreError::RtspBody(_) => -10,
-        CoreError::Windows(_) => -11,
-    }
+    abi_error_code(&error)
 }
 
 fn guarded(f: impl FnOnce() -> Result<i32, CoreError>) -> i32 {
@@ -87,7 +74,7 @@ pub extern "C" fn airplay_core_init() -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn airplay_core_version() -> *const c_char {
-    static VERSION: &[u8] = b"0.3.0\0";
+    static VERSION: &[u8] = concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes();
     catch_unwind(|| VERSION.as_ptr() as *const c_char).unwrap_or(std::ptr::null())
 }
 
@@ -98,6 +85,7 @@ pub extern "C" fn airplay_session_create() -> u64 {
         let handle = registry.next;
         registry.next = registry.next.checked_add(1).unwrap_or(1);
         registry.sessions.insert(handle, Session::default());
+        registry.policies.insert(handle, ConnectionPolicy::Manual);
         handle
     }))
     .unwrap_or(0)
@@ -111,6 +99,7 @@ pub extern "C" fn airplay_session_destroy(handle: u64) -> i32 {
                 .lock()
                 .map_err(|_| CoreError::InvalidState("registry poisoned"))?;
             let engine = registry.engines.remove(&handle);
+            registry.policies.remove(&handle);
             let session = registry
                 .sessions
                 .remove(&handle)
@@ -131,45 +120,89 @@ pub extern "C" fn airplay_session_destroy(handle: u64) -> i32 {
 /// # Safety
 /// `address` 必须指向当前调用期间有效、以 `\0` 结尾的 UTF-8 地址字符串。
 pub unsafe extern "C" fn airplay_session_start(handle: u64, address: *const c_char) -> i32 {
+    unsafe { airplay_session_connect(handle, address) }
+}
+
+#[unsafe(no_mangle)]
+/// 设置会话连接策略。0 为手动（默认），1 为有限自动重试。
+pub extern "C" fn airplay_session_set_connection_policy(handle: u64, policy: i32) -> i32 {
     guarded(|| {
-        if address.is_null() {
-            return Err(CoreError::InvalidArgument);
-        }
-        let address = unsafe { CStr::from_ptr(address) }
-            .to_str()
-            .map_err(|_| CoreError::InvalidArgument)?;
-        let address = SocketAddr::from_str(address).map_err(|_| CoreError::InvalidArgument)?;
-        {
-            let registry = registry()
-                .lock()
-                .map_err(|_| CoreError::InvalidState("registry poisoned"))?;
-            let session = registry
-                .sessions
-                .get(&handle)
-                .ok_or(CoreError::InvalidArgument)?;
-            if session.state() != SessionState::Idle || registry.engines.contains_key(&handle) {
-                return Err(CoreError::InvalidState("session already started"));
-            }
-        }
-        let engine = SenderEngine::start(address)?;
         let mut registry = registry()
             .lock()
             .map_err(|_| CoreError::InvalidState("registry poisoned"))?;
+        if !registry.sessions.contains_key(&handle) {
+            return Err(CoreError::InvalidArgument);
+        }
         if registry.engines.contains_key(&handle) {
-            return Err(CoreError::InvalidState("session already started"));
+            return Err(CoreError::InvalidState(
+                "cannot change policy while connected",
+            ));
         }
         registry
-            .sessions
-            .get_mut(&handle)
-            .ok_or(CoreError::InvalidArgument)?
-            .begin_pairing()?;
-        registry.engines.insert(handle, engine);
+            .policies
+            .insert(handle, ConnectionPolicy::try_from(policy)?);
         Ok(OK)
     })
 }
 
 #[unsafe(no_mangle)]
+/// 用户明确请求连接；发现本身不会触发此调用。
+///
+/// # Safety
+/// `address` 必须指向当前调用期间有效、以 `\0` 结尾的 UTF-8 地址字符串。
+pub unsafe extern "C" fn airplay_session_connect(handle: u64, address: *const c_char) -> i32 {
+    guarded(|| connect_session(handle, address))
+}
+
+fn connect_session(handle: u64, address: *const c_char) -> Result<i32, CoreError> {
+    if address.is_null() {
+        return Err(CoreError::InvalidArgument);
+    }
+    let address = unsafe { CStr::from_ptr(address) }
+        .to_str()
+        .map_err(|_| CoreError::InvalidArgument)?;
+    let address = SocketAddr::from_str(address).map_err(|_| CoreError::InvalidArgument)?;
+    let policy = {
+        let registry = registry()
+            .lock()
+            .map_err(|_| CoreError::InvalidState("registry poisoned"))?;
+        let session = registry
+            .sessions
+            .get(&handle)
+            .ok_or(CoreError::InvalidArgument)?;
+        if !matches!(
+            session.state(),
+            SessionState::Idle | SessionState::Stopped | SessionState::Failed
+        ) || registry.engines.contains_key(&handle)
+        {
+            return Err(CoreError::InvalidState("session already connected"));
+        }
+        *registry
+            .policies
+            .get(&handle)
+            .unwrap_or(&ConnectionPolicy::Manual)
+    };
+    let engine = SenderEngine::start(address, policy)?;
+    let mut registry = registry()
+        .lock()
+        .map_err(|_| CoreError::InvalidState("registry poisoned"))?;
+    let session = registry
+        .sessions
+        .get_mut(&handle)
+        .ok_or(CoreError::InvalidArgument)?;
+    session.begin_connection()?;
+    registry.engines.insert(handle, engine);
+    Ok(OK)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn airplay_session_stop(handle: u64) -> i32 {
+    airplay_session_disconnect(handle)
+}
+
+#[unsafe(no_mangle)]
+/// 用户主动断开。该操作会停止后台线程，因此任何待执行的自动重试都会被取消。
+pub extern "C" fn airplay_session_disconnect(handle: u64) -> i32 {
     guarded(|| {
         let mut engine = {
             let mut registry = registry()
@@ -229,6 +262,13 @@ pub unsafe extern "C" fn airplay_session_poll_event(handle: u64, event: *mut Air
             .get(&handle)
             .map(SenderEngine::drain_events)
             .unwrap_or_default();
+        // 后台线程结束后立即移除引擎，下一次显式 connect 才能创建新连接。
+        if engine_events
+            .iter()
+            .any(|event| matches!(event, EngineEvent::Stopped))
+        {
+            registry.engines.remove(&handle);
+        }
         let session = registry
             .sessions
             .get_mut(&handle)
@@ -384,6 +424,14 @@ mod tests {
     }
 
     #[test]
+    fn ffi_struct_layout_is_stable() {
+        assert_eq!(std::mem::size_of::<AirplayEvent>(), 16);
+        assert_eq!(std::mem::align_of::<AirplayEvent>(), 4);
+        assert_eq!(std::mem::size_of::<AirplayTargetInfo>(), 226);
+        assert_eq!(std::mem::align_of::<AirplayTargetInfo>(), 2);
+    }
+
+    #[test]
     fn engine_events_keep_failed_as_terminal_state() {
         let mut session = Session::default();
         session.begin_pairing().unwrap();
@@ -392,6 +440,53 @@ mod tests {
             vec![EngineEvent::Error(-5), EngineEvent::Stopped],
         );
         assert_eq!(session.state(), SessionState::Failed);
+    }
+
+    #[test]
+    fn reconnect_event_precedes_next_connecting_state() {
+        let mut session = Session::default();
+        session.begin_pairing().unwrap();
+        session.pairing_verified().unwrap();
+        session.stream_ready().unwrap();
+        apply_engine_events(&mut session, vec![EngineEvent::Reconnecting]);
+        assert_eq!(session.state(), SessionState::Connecting);
+        assert_eq!(
+            session.pop_event(),
+            Some(SessionEvent::State(SessionState::Pairing))
+        );
+        assert_eq!(
+            session.pop_event(),
+            Some(SessionEvent::State(SessionState::Connecting))
+        );
+        assert_eq!(
+            session.pop_event(),
+            Some(SessionEvent::State(SessionState::Streaming))
+        );
+        assert_eq!(
+            session.pop_event(),
+            Some(SessionEvent::State(SessionState::Connecting))
+        );
+    }
+
+    #[test]
+    fn explicit_disconnect_ignores_late_reconnect_event() {
+        let mut session = Session::default();
+        session.begin_pairing().unwrap();
+        session.stop();
+        apply_engine_events(&mut session, vec![EngineEvent::Reconnecting]);
+        assert_eq!(session.state(), SessionState::Stopped);
+    }
+
+    #[test]
+    fn policy_and_disconnect_exports_are_panic_isolated() {
+        let handle = airplay_session_create();
+        assert_eq!(airplay_session_set_connection_policy(handle, 1), OK);
+        assert_eq!(
+            airplay_session_set_connection_policy(handle, 9),
+            ERR_ARGUMENT
+        );
+        assert_eq!(airplay_session_disconnect(handle), OK);
+        assert_eq!(airplay_session_destroy(handle), OK);
     }
 
     #[test]

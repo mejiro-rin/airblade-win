@@ -8,6 +8,40 @@
 extern "C" {
 #endif
 
+// 连接策略。
+#define AIRPLAY_CONNECTION_MANUAL 0
+#define AIRPLAY_CONNECTION_AUTOMATIC 1
+
+// 事件类型。
+#define AIRPLAY_EVENT_NONE 0
+#define AIRPLAY_EVENT_STATE 1
+#define AIRPLAY_EVENT_VOLUME 2
+#define AIRPLAY_EVENT_ERROR 3
+
+// 会话状态。DISCONNECTED 是供上层显示使用的 STOPPED 别名。
+#define AIRPLAY_STATE_IDLE 0
+#define AIRPLAY_STATE_PAIRING 1
+#define AIRPLAY_STATE_CONNECTING 2
+#define AIRPLAY_STATE_STREAMING 3
+#define AIRPLAY_STATE_STOPPED 4
+#define AIRPLAY_STATE_DISCONNECTED AIRPLAY_STATE_STOPPED
+#define AIRPLAY_STATE_FAILED 5
+
+// 导出函数返回值和错误事件使用同一套错误码。
+#define AIRPLAY_OK 0
+#define AIRPLAY_ERR_ARGUMENT -1
+#define AIRPLAY_ERR_STATE -2
+#define AIRPLAY_ERR_PROTOCOL -3
+#define AIRPLAY_ERR_AUTHENTICATION -4
+#define AIRPLAY_ERR_NETWORK -5
+#define AIRPLAY_ERR_DISCOVERY -6
+#define AIRPLAY_ERR_PAIRING_STATUS -7
+#define AIRPLAY_ERR_PAIRING_TLV -8
+#define AIRPLAY_ERR_RTSP_STATUS -9
+#define AIRPLAY_ERR_RTSP_BODY -10
+#define AIRPLAY_ERR_WINDOWS_AUDIO -11
+#define AIRPLAY_ERR_PANIC -127
+
 // 事件 kind：0 表示当前无事件，1 表示状态，2 表示远端音量，3 表示错误。
 typedef struct AirplayEvent {
     int32_t kind;
@@ -28,6 +62,11 @@ int32_t airplay_core_init(void);
 const char *airplay_core_version(void);
 
 uint64_t airplay_session_create(void);
+// 连接策略：0=手动（默认，断链后不抢连），1=自动（仅暂时网络故障有限重试）。
+int32_t airplay_session_set_connection_policy(uint64_t handle, int32_t policy);
+int32_t airplay_session_connect(uint64_t handle, const char *address);
+int32_t airplay_session_disconnect(uint64_t handle);
+// 以下两个旧名称保留 ABI 兼容，分别等同于 connect 和 disconnect。
 int32_t airplay_session_start(uint64_t handle, const char *address);
 int32_t airplay_session_stop(uint64_t handle);
 int32_t airplay_session_set_volume(uint64_t handle, float volume_db);
