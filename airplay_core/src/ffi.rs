@@ -38,6 +38,24 @@ pub struct AirplayTargetInfo {
     pub port: u16,
 }
 
+/// C# 在启动时用于验证结构体 ABI 的布局描述。
+/// 所有数值均为字节单位，字段顺序是 ABI 的一部分。
+#[repr(C)]
+pub struct AirplayAbiLayout {
+    pub event_size: u32,
+    pub event_align: u32,
+    pub event_kind_offset: u32,
+    pub event_state_offset: u32,
+    pub event_volume_db_offset: u32,
+    pub event_error_code_offset: u32,
+    pub target_size: u32,
+    pub target_align: u32,
+    pub target_device_id_offset: u32,
+    pub target_display_name_offset: u32,
+    pub target_address_offset: u32,
+    pub target_port_offset: u32,
+}
+
 #[derive(Default)]
 struct Registry {
     next: u64,
@@ -76,6 +94,37 @@ pub extern "C" fn airplay_core_init() -> i32 {
 pub extern "C" fn airplay_core_version() -> *const c_char {
     static VERSION: &[u8] = concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes();
     catch_unwind(|| VERSION.as_ptr() as *const c_char).unwrap_or(std::ptr::null())
+}
+
+#[unsafe(no_mangle)]
+/// 返回 C ABI 结构体布局，供受管调用方在首次加载时验证。
+///
+/// # Safety
+/// `layout` 必须指向当前调用期间有效且可写的 `AirplayAbiLayout`。
+pub unsafe extern "C" fn airplay_core_get_abi_layout(layout: *mut AirplayAbiLayout) -> i32 {
+    guarded(|| {
+        if layout.is_null() {
+            return Err(CoreError::InvalidArgument);
+        }
+        unsafe {
+            layout.write(AirplayAbiLayout {
+                event_size: std::mem::size_of::<AirplayEvent>() as u32,
+                event_align: std::mem::align_of::<AirplayEvent>() as u32,
+                event_kind_offset: std::mem::offset_of!(AirplayEvent, kind) as u32,
+                event_state_offset: std::mem::offset_of!(AirplayEvent, state) as u32,
+                event_volume_db_offset: std::mem::offset_of!(AirplayEvent, volume_db) as u32,
+                event_error_code_offset: std::mem::offset_of!(AirplayEvent, error_code) as u32,
+                target_size: std::mem::size_of::<AirplayTargetInfo>() as u32,
+                target_align: std::mem::align_of::<AirplayTargetInfo>() as u32,
+                target_device_id_offset: std::mem::offset_of!(AirplayTargetInfo, device_id) as u32,
+                target_display_name_offset: std::mem::offset_of!(AirplayTargetInfo, display_name)
+                    as u32,
+                target_address_offset: std::mem::offset_of!(AirplayTargetInfo, address) as u32,
+                target_port_offset: std::mem::offset_of!(AirplayTargetInfo, port) as u32,
+            });
+        }
+        Ok(OK)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -429,6 +478,7 @@ mod tests {
         assert_eq!(std::mem::align_of::<AirplayEvent>(), 4);
         assert_eq!(std::mem::size_of::<AirplayTargetInfo>(), 226);
         assert_eq!(std::mem::align_of::<AirplayTargetInfo>(), 2);
+        assert_eq!(std::mem::size_of::<AirplayAbiLayout>(), 48);
     }
 
     #[test]
@@ -493,6 +543,10 @@ mod tests {
     fn exported_functions_reject_invalid_arguments_without_panicking() {
         assert_eq!(airplay_core_init(), OK);
         assert!(!airplay_core_version().is_null());
+        assert_eq!(
+            unsafe { airplay_core_get_abi_layout(std::ptr::null_mut()) },
+            ERR_ARGUMENT
+        );
         assert_eq!(
             unsafe { airplay_event_release(std::ptr::null_mut()) },
             ERR_ARGUMENT

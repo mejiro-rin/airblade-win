@@ -1,15 +1,11 @@
 <Solution>
   <Configurations>
-    <Platform Name="ARM64" />
     <Platform Name="x64" />
-    <Platform Name="x86" />
   </Configurations>
   <Project Path="AirBlade/AirBlade.csproj">
-    <Platform Solution="*|ARM64" Project="ARM64" />
     <Platform Solution="*|x64" Project="x64" />
-    <Platform Solution="*|x86" Project="x86" />
-    <Deploy Solution="*|ARM64" />
-    <Deploy Solution="*|x86" />
     <Deploy Solution="Release|x64" />
   </Project>
+  <Project Path="AirBlade.IntegrationProbe/AirBlade.IntegrationProbe.csproj" />
+  <Project Path="AirBlade.Tests/AirBlade.Tests.csproj" />
 </Solution>
