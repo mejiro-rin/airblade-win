@@ -14,10 +14,8 @@
     </Window.SystemBackdrop>
 
     <Grid>
-        <Button x:Name="myButton" 
-                Content="Click Me" 
-                Click="myButton_Click" 
-                HorizontalAlignment="Center" 
-                VerticalAlignment="Center"/>
+        <TextBlock Text="AirBlade 服务层已就绪，设备界面将在下一阶段加入。"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center" />
     </Grid>
 </Window>

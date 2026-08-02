@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <!-- 开发环境可使用本机 NuGet 缓存；源暂时不可达时不阻断本地构建和运行。 -->
+    <RestoreIgnoreFailedSources>true</RestoreIgnoreFailedSources>
+    <!-- 避免在离线开发时因漏洞元数据检查访问 NuGet。 -->
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+</Project>

@@ -4,9 +4,12 @@
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>AirBlade</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Platforms>x86;x64;ARM64</Platforms>
-    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <PublishProfile>win-$(Platform).pubxml</PublishProfile>
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
@@ -61,7 +64,7 @@
     <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
   </PropertyGroup>
 
-  <!-- 在编译前自动将 Rust 编译出的 DLL 复制到 output 目录 -->
+  <!-- 自动将 Rust 编译出的 x64 DLL 复制到输出目录。 -->
   <ItemGroup>
 	<None Include="..\airplay_core\target\debug\airplay_core.dll" Link="airplay_core.dll" Condition="'$(Configuration)' == 'Debug'">
 	  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -70,4 +73,11 @@
 	  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 	</None>
   </ItemGroup>
+
+  <Target Name="VerifyAirplayCoreDll" BeforeTargets="Build">
+    <Error Condition="'$(Configuration)' == 'Debug' And !Exists('..\airplay_core\target\debug\airplay_core.dll')"
+           Text="缺少 airplay_core.dll。请在 airplay_core 目录执行 cargo build。" />
+    <Error Condition="'$(Configuration)' == 'Release' And !Exists('..\airplay_core\target\release\airplay_core.dll')"
+           Text="缺少 airplay_core.dll。请在 airplay_core 目录执行 cargo build --release。" />
+  </Target>
 </Project>
