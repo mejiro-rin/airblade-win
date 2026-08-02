@@ -31,4 +31,19 @@ public sealed class AirplayDevice
         Port = port;
         IsDiscovered = true;
     }
+
+    internal void MarkUndiscovered() => IsDiscovered = false;
 }
+
+/// <summary>
+/// 面向界面的设备只读状态快照。
+/// </summary>
+public sealed record AirplayDeviceSnapshot(
+    string DeviceId,
+    string DisplayName,
+    string Address,
+    ushort Port,
+    AirplaySessionState ConnectionState,
+    float? VolumeDb,
+    AirplayCoreException? LastError,
+    bool IsDiscovered);
