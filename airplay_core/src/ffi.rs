@@ -1,23 +1,423 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
+//! 面向 C#/C 的稳定接口：只暴露不透明会话句柄、固定大小目标结构和轮询事件。
+//! 所有导出函数都拦截 Rust panic，不能让异常穿透 DLL 边界。
 
-pub fn run_verification_test() -> windows::core::Result<()> {
-    let capture = WasapiCapture::new()?;
-    let sample_rate = capture.format.nSamplesPerSec;
-    let channels = capture.format.nChannels;
+use crate::{
+    discovery::discover_homepods,
+    engine::{EngineEvent, SenderEngine},
+    error::CoreError,
+    session::{Session, SessionEvent, SessionState},
+};
+use std::{
+    collections::HashMap,
+    ffi::{CStr, c_char},
+    net::SocketAddr,
+    panic::{AssertUnwindSafe, catch_unwind},
+    str::FromStr,
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
 
-    // 0.5秒缓冲量
-    let capacity = (sample_rate as usize) * (channels as usize) / 2;
-    let mut ring = AudioRingBuffer::new(capacity);
+const OK: i32 = 0;
+const ERR_ARGUMENT: i32 = -1;
+const ERR_STATE: i32 = -2;
+const ERR_PROTOCOL: i32 = -3;
+const ERR_AUTH: i32 = -4;
+const ERR_PANIC: i32 = -127;
 
-    capture.start()?;
-    let running = Arc::new(AtomicBool::new(true));
+#[repr(C)]
+pub struct AirplayEvent {
+    pub kind: i32,
+    pub state: i32,
+    pub volume_db: f32,
+    pub error_code: i32,
+}
 
-    thread::sleep(Duration::from_secs(10)); // 录10秒
-    running.store(false, Ordering::Relaxed);
+#[repr(C)]
+pub struct AirplayTargetInfo {
+    pub device_id: [c_char; 32],
+    pub display_name: [c_char; 128],
+    pub address: [c_char; 64],
+    pub port: u16,
+}
 
-    capture.stop()?;
-    Ok(())
+#[derive(Default)]
+struct Registry {
+    next: u64,
+    sessions: HashMap<u64, Session>,
+    engines: HashMap<u64, SenderEngine>,
+}
+
+static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
+
+fn registry() -> &'static Mutex<Registry> {
+    REGISTRY.get_or_init(|| {
+        Mutex::new(Registry {
+            next: 1,
+            ..Default::default()
+        })
+    })
+}
+
+fn code(error: CoreError) -> i32 {
+    match error {
+        CoreError::InvalidArgument => ERR_ARGUMENT,
+        CoreError::InvalidState(_) => ERR_STATE,
+        CoreError::Protocol(_) => ERR_PROTOCOL,
+        CoreError::Authentication => ERR_AUTH,
+        CoreError::Network(_) => -5,
+        CoreError::Discovery(_) => -6,
+        CoreError::PairingStatus(_) => -7,
+        CoreError::PairingTlv(_) => -8,
+        CoreError::RtspStatus(_, _) => -9,
+        CoreError::RtspBody(_) => -10,
+        CoreError::Windows(_) => -11,
+    }
+}
+
+fn guarded(f: impl FnOnce() -> Result<i32, CoreError>) -> i32 {
+    catch_unwind(AssertUnwindSafe(f))
+        .unwrap_or(Ok(ERR_PANIC))
+        .unwrap_or_else(code)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn airplay_core_init() -> i32 {
+    guarded(|| Ok(OK))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn airplay_core_version() -> *const c_char {
+    static VERSION: &[u8] = b"0.3.0\0";
+    catch_unwind(|| VERSION.as_ptr() as *const c_char).unwrap_or(std::ptr::null())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn airplay_session_create() -> u64 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let mut registry = registry().lock().expect("会话注册表已损坏");
+        let handle = registry.next;
+        registry.next = registry.next.checked_add(1).unwrap_or(1);
+        registry.sessions.insert(handle, Session::default());
+        handle
+    }))
+    .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn airplay_session_destroy(handle: u64) -> i32 {
+    guarded(|| {
+        let (mut engine, mut session) = {
+            let mut registry = registry()
+                .lock()
+                .map_err(|_| CoreError::InvalidState("registry poisoned"))?;
+            let engine = registry.engines.remove(&handle);
+            let session = registry
+                .sessions
+                .remove(&handle)
+                .ok_or(CoreError::InvalidArgument)?;
+            (engine, session)
+        };
+        if let Some(engine) = engine.as_mut() {
+            engine.stop();
+        }
+        session.stop();
+        Ok(OK)
+    })
+}
+
+#[unsafe(no_mangle)]
+/// 启动指定会话的发送引擎。
+///
+/// # Safety
+/// `address` 必须指向当前调用期间有效、以 `\0` 结尾的 UTF-8 地址字符串。
+pub unsafe extern "C" fn airplay_session_start(handle: u64, address: *const c_char) -> i32 {
+    guarded(|| {
+        if address.is_null() {
+            return Err(CoreError::InvalidArgument);
+        }
+        let address = unsafe { CStr::from_ptr(address) }
+            .to_str()
+            .map_err(|_| CoreError::InvalidArgument)?;
+        let address = SocketAddr::from_str(address).map_err(|_| CoreError::InvalidArgument)?;
+        {
+            let registry = registry()
+                .lock()
+                .map_err(|_| CoreError::InvalidState("registry poisoned"))?;
+            let session = registry
+                .sessions
+                .get(&handle)
+                .ok_or(CoreError::InvalidArgument)?;
+            if session.state() != SessionState::Idle || registry.engines.contains_key(&handle) {
+                return Err(CoreError::InvalidState("session already started"));
+            }
+        }
+        let engine = SenderEngine::start(address)?;
+        let mut registry = registry()
+            .lock()
+            .map_err(|_| CoreError::InvalidState("registry poisoned"))?;
+        if registry.engines.contains_key(&handle) {
+            return Err(CoreError::InvalidState("session already started"));
+        }
+        registry
+            .sessions
+            .get_mut(&handle)
+            .ok_or(CoreError::InvalidArgument)?
+            .begin_pairing()?;
+        registry.engines.insert(handle, engine);
+        Ok(OK)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn airplay_session_stop(handle: u64) -> i32 {
+    guarded(|| {
+        let mut engine = {
+            let mut registry = registry()
+                .lock()
+                .map_err(|_| CoreError::InvalidState("registry poisoned"))?;
+            registry.engines.remove(&handle)
+        };
+        if let Some(engine) = engine.as_mut() {
+            engine.stop();
+        }
+        registry()
+            .lock()
+            .map_err(|_| CoreError::InvalidState("registry poisoned"))?
+            .sessions
+            .get_mut(&handle)
+            .ok_or(CoreError::InvalidArgument)?
+            .stop();
+        Ok(OK)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn airplay_session_set_volume(handle: u64, volume_db: f32) -> i32 {
+    guarded(|| {
+        let mut registry = registry()
+            .lock()
+            .map_err(|_| CoreError::InvalidState("registry poisoned"))?;
+        registry
+            .sessions
+            .get_mut(&handle)
+            .ok_or(CoreError::InvalidArgument)?
+            .set_local_volume(volume_db)?;
+        registry
+            .engines
+            .get(&handle)
+            .ok_or(CoreError::InvalidState("sender engine not started"))?
+            .set_volume(volume_db)?;
+        Ok(OK)
+    })
+}
+
+#[unsafe(no_mangle)]
+/// 取出队列中的下一个事件；没有事件时写入 kind=0。
+///
+/// # Safety
+/// `event` 必须指向一个当前调用期间可写的 `AirplayEvent`。
+pub unsafe extern "C" fn airplay_session_poll_event(handle: u64, event: *mut AirplayEvent) -> i32 {
+    guarded(|| {
+        if event.is_null() {
+            return Err(CoreError::InvalidArgument);
+        }
+        let mut registry = registry()
+            .lock()
+            .map_err(|_| CoreError::InvalidState("registry poisoned"))?;
+        let engine_events = registry
+            .engines
+            .get(&handle)
+            .map(SenderEngine::drain_events)
+            .unwrap_or_default();
+        let session = registry
+            .sessions
+            .get_mut(&handle)
+            .ok_or(CoreError::InvalidArgument)?;
+        apply_engine_events(session, engine_events);
+        unsafe { event.write(map_event(session.pop_event())) };
+        Ok(OK)
+    })
+}
+
+#[unsafe(no_mangle)]
+/// 发现局域网中的 HomePod，并把结果写入调用方数组。
+///
+/// # Safety
+/// `out_count` 必须可写；当 `capacity` 大于 0 时，`targets` 必须指向至少
+/// `capacity` 个连续、可写的 `AirplayTargetInfo`。
+pub unsafe extern "C" fn airplay_discover_homepods(
+    timeout_ms: u32,
+    targets: *mut AirplayTargetInfo,
+    capacity: usize,
+    out_count: *mut usize,
+) -> i32 {
+    guarded(|| {
+        if timeout_ms == 0 || timeout_ms > 30_000 || out_count.is_null() {
+            return Err(CoreError::InvalidArgument);
+        }
+        if capacity > 0 && targets.is_null() {
+            return Err(CoreError::InvalidArgument);
+        }
+        let found = discover_homepods(Duration::from_millis(timeout_ms as u64))?;
+        unsafe { out_count.write(found.len()) };
+        for (index, target) in found.iter().take(capacity).enumerate() {
+            let address = target
+                .addresses
+                .iter()
+                .find(|address| address.is_ipv4())
+                .or_else(|| target.addresses.first())
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            let mut output = AirplayTargetInfo {
+                device_id: [0; 32],
+                display_name: [0; 128],
+                address: [0; 64],
+                port: target.airplay_port.unwrap_or(target.port),
+            };
+            copy_text(&mut output.device_id, &target.device_id);
+            copy_text(&mut output.display_name, &target.display_name);
+            copy_text(&mut output.address, &address);
+            unsafe { targets.add(index).write(output) };
+        }
+        Ok(OK)
+    })
+}
+
+#[unsafe(no_mangle)]
+/// 清空一个已经消费的事件结构。
+///
+/// # Safety
+/// `event` 必须指向一个当前调用期间可写的 `AirplayEvent`。
+pub unsafe extern "C" fn airplay_event_release(event: *mut AirplayEvent) -> i32 {
+    guarded(|| {
+        if event.is_null() {
+            return Err(CoreError::InvalidArgument);
+        }
+        unsafe { event.write(map_event(None)) };
+        Ok(OK)
+    })
+}
+
+fn apply_engine_events(session: &mut Session, events: Vec<EngineEvent>) {
+    for event in events {
+        match event {
+            EngineEvent::Paired if session.state() == SessionState::Pairing => {
+                let _ = session.pairing_verified();
+            }
+            EngineEvent::Streaming if session.state() == SessionState::Connecting => {
+                let _ = session.stream_ready();
+            }
+            EngineEvent::Volume(value) => {
+                let _ = session.receive_remote_volume(value);
+            }
+            EngineEvent::Reconnecting => session.reconnect(),
+            EngineEvent::Error(value) => session.fail(value),
+            EngineEvent::Stopped if session.state() != SessionState::Failed => session.stop(),
+            _ => {}
+        }
+    }
+}
+
+fn copy_text<const N: usize>(destination: &mut [c_char; N], value: &str) {
+    let bytes = value.as_bytes();
+    let length = bytes.len().min(N.saturating_sub(1));
+    for index in 0..length {
+        destination[index] = bytes[index] as c_char;
+    }
+}
+
+fn map_event(event: Option<SessionEvent>) -> AirplayEvent {
+    match event {
+        None => AirplayEvent {
+            kind: 0,
+            state: 0,
+            volume_db: 0.0,
+            error_code: 0,
+        },
+        Some(SessionEvent::State(state)) => AirplayEvent {
+            kind: 1,
+            state: state as i32,
+            volume_db: 0.0,
+            error_code: 0,
+        },
+        Some(SessionEvent::Volume(value)) => AirplayEvent {
+            kind: 2,
+            state: 0,
+            volume_db: value,
+            error_code: 0,
+        },
+        Some(SessionEvent::Error(value)) => AirplayEvent {
+            kind: 3,
+            state: 0,
+            volume_db: 0.0,
+            error_code: value,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ffi_is_panic_safe() {
+        assert_eq!(
+            guarded(|| -> Result<i32, CoreError> { panic!("test") }),
+            ERR_PANIC
+        );
+    }
+
+    #[test]
+    fn fixed_ffi_text_is_terminated_and_truncated() {
+        let mut output = [0 as c_char; 5];
+        copy_text(&mut output, "abcdef");
+        assert_eq!(
+            output,
+            [
+                b'a' as c_char,
+                b'b' as c_char,
+                b'c' as c_char,
+                b'd' as c_char,
+                0
+            ]
+        );
+    }
+
+    #[test]
+    fn engine_events_keep_failed_as_terminal_state() {
+        let mut session = Session::default();
+        session.begin_pairing().unwrap();
+        apply_engine_events(
+            &mut session,
+            vec![EngineEvent::Error(-5), EngineEvent::Stopped],
+        );
+        assert_eq!(session.state(), SessionState::Failed);
+    }
+
+    #[test]
+    fn exported_functions_reject_invalid_arguments_without_panicking() {
+        assert_eq!(airplay_core_init(), OK);
+        assert!(!airplay_core_version().is_null());
+        assert_eq!(
+            unsafe { airplay_event_release(std::ptr::null_mut()) },
+            ERR_ARGUMENT
+        );
+        assert_eq!(
+            unsafe { airplay_discover_homepods(0, std::ptr::null_mut(), 0, std::ptr::null_mut()) },
+            ERR_ARGUMENT
+        );
+        let mut event = map_event(None);
+        assert_eq!(
+            unsafe { airplay_session_poll_event(u64::MAX, &mut event) },
+            ERR_ARGUMENT
+        );
+    }
+
+    #[test]
+    fn session_handle_can_be_created_and_destroyed() {
+        let handle = airplay_session_create();
+        assert_ne!(handle, 0);
+        assert_eq!(airplay_session_destroy(handle), OK);
+        assert_eq!(airplay_session_destroy(handle), ERR_ARGUMENT);
+    }
 }

@@ -4,6 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+chacha20poly1305 = "0.10"
+hmac = "0.12"
+mdns-sd = "0.17"
+getrandom = "0.2"
+num-bigint = "0.4"
+plist = "1"
+sha2 = "0.10"
+socket2 = "0.6"
+srp = "0.6"
+thiserror = "2"
 windows = { version = "0.58", features = [
     "Win32_Media_Audio",
     "Win32_System_Com",
@@ -12,6 +22,7 @@ windows = { version = "0.58", features = [
     "Win32_Devices_Properties",
     "Win32_Media_KernelStreaming",
     "Win32_Security",
+    "Win32_Security_Cryptography",
 ] }
 ringbuf = "0.4"
 hound = "3.5"       # 用于验证阶段写WAV文件

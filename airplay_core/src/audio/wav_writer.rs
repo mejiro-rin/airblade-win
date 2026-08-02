@@ -1,8 +1,8 @@
-use hound::{WavWriter, WavSpec, SampleFormat};
+use hound::{SampleFormat, WavSpec, WavWriter};
 use ringbuf::HeapCons;
 use ringbuf::traits::Consumer;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// consumer 的所有权被move进来。
 pub fn write_to_wav(

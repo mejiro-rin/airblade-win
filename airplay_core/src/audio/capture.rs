@@ -1,19 +1,22 @@
-use windows::Win32::Media::Audio::*;
-use windows::Win32::System::Com::*;
-use windows::Win32::System::Threading::*;
-use windows::Win32::Foundation::*;
-use windows::core::*;
 use super::device::get_default_render_device;
+use super::processing::{InputPcmFormat, SampleEncoding};
+use crate::error::{CoreError, Result};
 use ringbuf::HeapProd;
 use ringbuf::traits::Producer;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use windows::Win32::Foundation::*;
+use windows::Win32::Media::Audio::*;
+use windows::Win32::Media::KernelStreaming::{KSDATAFORMAT_SUBTYPE_PCM, WAVE_FORMAT_EXTENSIBLE};
+use windows::Win32::System::Com::*;
+use windows::Win32::System::Threading::*;
+use windows::core::GUID;
 
 pub struct WasapiCapture {
     audio_client: IAudioClient,
     capture_client: IAudioCaptureClient,
     event_handle: HANDLE,
-    pub format: WAVEFORMATEX,
+    pub format: InputPcmFormat,
 }
 
 unsafe impl Send for WasapiCapture {}
@@ -27,7 +30,7 @@ impl WasapiCapture {
             let audio_client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
 
             let format_ptr = audio_client.GetMixFormat()?;
-            let format = *format_ptr;
+            let format = parse_mix_format(format_ptr)?;
 
             audio_client.Initialize(
                 AUDCLNT_SHAREMODE_SHARED,
@@ -37,6 +40,7 @@ impl WasapiCapture {
                 format_ptr,
                 None,
             )?;
+            CoTaskMemFree(Some(format_ptr.cast()));
 
             let event_handle = CreateEventW(None, false, false, None)?;
 
@@ -54,11 +58,13 @@ impl WasapiCapture {
     }
 
     pub fn start(&self) -> Result<()> {
-        unsafe { self.audio_client.Start() }
+        unsafe { self.audio_client.Start()? };
+        Ok(())
     }
 
     pub fn stop(&self) -> Result<()> {
-        unsafe { self.audio_client.Stop() }
+        unsafe { self.audio_client.Stop()? };
+        Ok(())
     }
 }
 
@@ -85,17 +91,15 @@ pub fn run_capture_loop(
                 let mut frames_available = 0u32;
                 let mut flags = 0u32;
 
-                if capture.capture_client.GetBuffer(
-                    &mut data_ptr,
-                    &mut frames_available,
-                    &mut flags,
-                    None,
-                    None,
-                ).is_err() {
+                if capture
+                    .capture_client
+                    .GetBuffer(&mut data_ptr, &mut frames_available, &mut flags, None, None)
+                    .is_err()
+                {
                     break;
                 }
 
-                let channels = capture.format.nChannels as usize;
+                let channels = capture.format.channels;
                 let sample_count = frames_available as usize * channels;
 
                 if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
@@ -103,12 +107,12 @@ pub fn run_capture_loop(
                         let _ = producer.try_push(0.0f32);
                     }
                 } else {
-                    let samples = std::slice::from_raw_parts(
-                        data_ptr as *const f32,
-                        sample_count,
-                    );
-                    for &s in samples {
-                        let _ = producer.try_push(s);
+                    let byte_count = frames_available as usize * capture.format.block_align;
+                    let bytes = std::slice::from_raw_parts(data_ptr, byte_count);
+                    if let Ok(samples) = capture.format.decode(bytes) {
+                        for sample in samples {
+                            let _ = producer.try_push(sample);
+                        }
                     }
                 }
 
@@ -116,4 +120,37 @@ pub fn run_capture_loop(
             }
         }
     }
+}
+
+unsafe fn parse_mix_format(format_ptr: *const WAVEFORMATEX) -> Result<InputPcmFormat> {
+    let base = unsafe { *format_ptr };
+    let (encoding, valid_bits) = match base.wFormatTag as u32 {
+        WAVE_FORMAT_PCM => (SampleEncoding::SignedPcm, base.wBitsPerSample),
+        3 => (SampleEncoding::Float, base.wBitsPerSample),
+        WAVE_FORMAT_EXTENSIBLE => {
+            let extensible =
+                unsafe { std::ptr::read_unaligned(format_ptr.cast::<WAVEFORMATEXTENSIBLE>()) };
+            let sub_format = extensible.SubFormat;
+            let valid_bits = unsafe { extensible.Samples.wValidBitsPerSample };
+            const IEEE_FLOAT: GUID = GUID::from_u128(0x00000003_0000_0010_8000_00aa00389b71);
+            let encoding = if sub_format == KSDATAFORMAT_SUBTYPE_PCM {
+                SampleEncoding::SignedPcm
+            } else if sub_format == IEEE_FLOAT {
+                SampleEncoding::Float
+            } else {
+                return Err(CoreError::Protocol("WASAPI 返回了未知的扩展采样格式"));
+            };
+            (encoding, valid_bits)
+        }
+        _ => return Err(CoreError::Protocol("WASAPI 返回了不支持的采样格式")),
+    };
+    InputPcmFormat {
+        sample_rate: base.nSamplesPerSec,
+        channels: base.nChannels as usize,
+        block_align: base.nBlockAlign as usize,
+        container_bits: base.wBitsPerSample,
+        valid_bits,
+        encoding,
+    }
+    .validate()
 }
