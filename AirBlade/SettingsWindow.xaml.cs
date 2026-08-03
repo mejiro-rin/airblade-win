@@ -69,6 +69,24 @@ public sealed partial class SettingsWindow : Window
     }
 
     /// <summary>
+    /// 设备卡片连接按钮：DataTemplate 里无法用 ElementName 绑定窗口命令，改为事件处理器直接调用。
+    /// </summary>
+    private async void ToggleConnectionButton_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is FrameworkElement { DataContext: DeviceItemViewModel device })
+            await ViewModel.ToggleConnectionCommand.ExecuteAsync(device);
+    }
+
+    /// <summary>
+    /// 设备卡片隐藏按钮：与连接按钮同理，改用事件处理器。
+    /// </summary>
+    private async void ToggleHiddenButton_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is FrameworkElement { DataContext: DeviceItemViewModel device })
+            await ViewModel.ToggleHiddenCommand.ExecuteAsync(device);
+    }
+
+    /// <summary>
     /// 保存草稿：通用与外观设置持久化到全局配置，并回调应用外观与语言。
     /// </summary>
     private async void SaveButton_Click(object sender, RoutedEventArgs args)

@@ -149,8 +149,13 @@
                                         VerticalAlignment="Center"
                                         PointerCaptureLost="VolumeSlider_PointerCaptureLost" />
                                     <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <Button Content="{Binding ConnectionActionText}" Command="{Binding DataContext.ToggleConnectionCommand, ElementName=Root}" CommandParameter="{Binding}" />
-                                        <Button Content="{Binding HiddenActionText}" Command="{Binding DataContext.ToggleHiddenCommand, ElementName=Root}" CommandParameter="{Binding}" />
+                                        <Button Click="ToggleConnectionButton_Click" AutomationProperties.Name="{Binding ConnectionActionText}">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="{Binding ActionGlyph}" FontSize="14" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding ConnectionActionText}" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Content="{Binding HiddenActionText}" Click="ToggleHiddenButton_Click" />
                                     </StackPanel>
                                     <TextBlock Grid.Row="3" Grid.ColumnSpan="2" Text="{Binding ErrorMessage}" Foreground="IndianRed" TextWrapping="WrapWholeWords" />
                                 </Grid>

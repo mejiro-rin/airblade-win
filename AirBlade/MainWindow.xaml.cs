@@ -76,6 +76,15 @@ public sealed partial class MainWindow : Window
         if (sender is Slider { DataContext: DeviceItemViewModel device }) await ViewModel.SetVolumeAsync(device);
     }
 
+    /// <summary>
+    /// 设备卡片连接按钮：DataTemplate 里无法用 ElementName 绑定窗口命令，改为事件处理器直接调用。
+    /// </summary>
+    private async void ToggleConnectionButton_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is FrameworkElement { DataContext: DeviceItemViewModel device })
+            await ViewModel.ToggleConnectionCommand.ExecuteAsync(device);
+    }
+
     private async void OnAutoRefreshTimerTick(object? sender, object args) => await ViewModel.DiscoverAsync();
 
     private void RootGrid_PointerPressed(object sender, PointerRoutedEventArgs args) => _autoHideEnabled = true;

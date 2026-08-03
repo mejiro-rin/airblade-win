@@ -23,6 +23,10 @@ use crate::{
     event_channel::RemoteEvent,
     pairing_client::open_transient_control,
 };
+use windows::{
+    Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx},
+    core::HRESULT,
+};
 
 pub enum EngineCommand {
     SetVolume(f32),
@@ -71,15 +75,31 @@ pub struct SenderEngine {
 
 impl SenderEngine {
     pub fn start(address: SocketAddr, policy: ConnectionPolicy) -> Result<Self> {
-        let capture = WasapiCapture::new()?;
-        let input_format = capture.format;
-        let capacity = input_format.sample_rate as usize * input_format.channels * 3;
-        let (producer, consumer) = create_ring(capacity);
+        // 环回捕获必须在 MTA 上创建和使用：WinUI 的 UI 线程是 STA，
+        // 在 STA 上调用 CoInitializeEx(MTA) 会返回 RPC_E_CHANGED_MODE 导致连接直接失败。
+        // 因此在采集线程内完成 COM 初始化和捕获器创建，再把 PCM 格式交给协议线程。
+        let (format_tx, format_rx) = mpsc::channel::<Result<(InputPcmFormat, HeapCons<f32>)>>();
         let running = Arc::new(AtomicBool::new(true));
         let capture_running = running.clone();
         let capture_worker = thread::Builder::new()
             .name("airblade-capture".into())
             .spawn(move || {
+                unsafe {
+                    let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+                }
+                let capture = match WasapiCapture::new() {
+                    Ok(capture) => capture,
+                    Err(error) => {
+                        let _ = format_tx.send(Err(error));
+                        return;
+                    }
+                };
+                let input_format = capture.format;
+                let capacity = input_format.sample_rate as usize * input_format.channels * 3;
+                let (producer, consumer) = create_ring(capacity);
+                if format_tx.send(Ok((input_format, consumer))).is_err() {
+                    return;
+                }
                 if capture.start().is_ok() {
                     run_capture_loop(&capture, producer, capture_running.clone());
                     let _ = capture.stop();
@@ -87,6 +107,11 @@ impl SenderEngine {
                     capture_running.store(false, Ordering::Release);
                 }
             })?;
+        let (input_format, mut consumer) = format_rx.recv().map_err(|_| {
+            CoreError::Windows(windows::core::Error::from_hresult(HRESULT(
+                0x8000_4005u32 as i32,
+            )))
+        })??;
 
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
@@ -94,7 +119,6 @@ impl SenderEngine {
         let protocol_worker = thread::Builder::new()
             .name("airblade-sender".into())
             .spawn(move || {
-                let mut consumer = consumer;
                 run_with_reconnect(
                     address,
                     policy,

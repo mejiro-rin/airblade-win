@@ -51,7 +51,7 @@
                                     </Grid>
                                 </Border>
                                 <Slider Grid.Column="1" Minimum="0" Maximum="100" StepFrequency="1" TickPlacement="None" IsEnabled="{Binding CanAdjustVolume}" Value="{Binding EditableVolume, Mode=TwoWay}" VerticalAlignment="Center" PointerCaptureLost="VolumeSlider_PointerCaptureLost" />
-                                <Button Grid.Column="2" Width="42" Height="42" Command="{Binding DataContext.ToggleConnectionCommand, ElementName=Root}" CommandParameter="{Binding}" ToolTipService.ToolTip="{Binding ActionToolTip}">
+                                <Button Grid.Column="2" Width="42" Height="42" Click="ToggleConnectionButton_Click" ToolTipService.ToolTip="{Binding ActionToolTip}">
                                     <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="{Binding ActionGlyph}" />
                                 </Button>
                             </Grid>
