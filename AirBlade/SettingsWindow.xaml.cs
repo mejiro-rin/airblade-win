@@ -37,7 +37,9 @@ public sealed partial class SettingsWindow : Window
             ThemeMode.Light => 2,
             _ => 0,
         };
+        _appliedSettings.Language = (int)global.Language;
         Draft.CopyFrom(_appliedSettings);
+        ApplyLocalization();
         ApplyTitleBarTheme(global.Theme);
         var titleBar = AppWindow.TitleBar;
         titleBar.ExtendsContentIntoTitleBar = true;
@@ -67,7 +69,7 @@ public sealed partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// 保存草稿：外观设置持久化到全局配置，并回调应用外观。
+    /// 保存草稿：通用与外观设置持久化到全局配置，并回调应用外观与语言。
     /// </summary>
     private async void SaveButton_Click(object sender, RoutedEventArgs args)
     {
@@ -81,6 +83,7 @@ public sealed partial class SettingsWindow : Window
                 2 => ThemeMode.Light,
                 _ => ThemeMode.FollowSystem,
             },
+            Language = (AppLanguage)_appliedSettings.Language,
         };
         try
         {
@@ -91,6 +94,50 @@ public sealed partial class SettingsWindow : Window
         {
             // 保存失败时保持草稿不变，避免界面状态与配置不一致。
         }
+    }
+
+    /// <summary>
+    /// 按当前语言刷新设置窗口内的静态文本。
+    /// </summary>
+    public void ApplyLocalization()
+    {
+        var t = LocalizationService.Current;
+        Title = t["Settings.Title"];
+        TitleBarTitle.Text = t["Settings.Title"];
+        ToolTipService.SetToolTip(MinimizeButton, t["Settings.Minimize"]);
+        ToolTipService.SetToolTip(MaximizeButton, t["Settings.Maximize"]);
+        ToolTipService.SetToolTip(CloseButton, t["Settings.Close"]);
+        NavDevices.Content = t["Settings.Nav.Devices"];
+        NavGeneral.Content = t["Settings.Nav.General"];
+        NavAppearance.Content = t["Settings.Nav.Appearance"];
+        NavAbout.Content = t["Settings.Nav.About"];
+        DevicesPageTitle.Text = t["Settings.Devices.Title"];
+        ToolTipService.SetToolTip(DiscoverButton, t["Settings.Devices.DiscoverToolTip"]);
+        GeneralPageTitle.Text = t["Settings.General.Title"];
+        LanguageCard.Header = t["Settings.General.Language"];
+        LanguageCard.Description = t["Settings.General.LanguageDescription"];
+        TogglePlaceholderCard.Header = t["Settings.General.TogglePlaceholder"];
+        TogglePlaceholderCard.Description = t["Settings.General.TogglePlaceholderDescription"];
+        TogglePlaceholderSwitch.OnContent = t["Settings.General.ToggleOn"];
+        TogglePlaceholderSwitch.OffContent = t["Settings.General.ToggleOff"];
+        OptionPlaceholderCard.Header = t["Settings.General.OptionPlaceholder"];
+        OptionPlaceholderCard.Description = t["Settings.General.OptionPlaceholderDescription"];
+        OptionPlaceholder1.Content = t["Settings.General.Option1"];
+        OptionPlaceholder2.Content = t["Settings.General.Option2"];
+        OptionPlaceholder3.Content = t["Settings.General.Option3"];
+        GeneralSaveButton.Content = t["Settings.Save"];
+        AppearanceSaveButton.Content = t["Settings.Save"];
+        AppearancePageTitle.Text = t["Settings.Appearance.Title"];
+        ThemeCard.Header = t["Settings.Appearance.Theme"];
+        ThemeCard.Description = t["Settings.Appearance.ThemeDescription"];
+        ThemeFollowSystemOption.Content = t["Settings.Appearance.ThemeFollowSystem"];
+        ThemeDarkOption.Content = t["Settings.Appearance.ThemeDark"];
+        ThemeLightOption.Content = t["Settings.Appearance.ThemeLight"];
+        AboutPageTitle.Text = t["Settings.About.Title"];
+        CopyrightCard.Header = t["Settings.About.Copyright"];
+        CopyrightCard.Description = t["Settings.About.CopyrightDescription"];
+        RepositoryCard.Header = t["Settings.About.Repository"];
+        UpdateMaximizeGlyph();
     }
 
     /// <summary>
@@ -177,7 +224,8 @@ public sealed partial class SettingsWindow : Window
         var maximized = AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized };
         MaximizePath.Visibility = maximized ? Visibility.Collapsed : Visibility.Visible;
         RestorePath.Visibility = maximized ? Visibility.Visible : Visibility.Collapsed;
-        ToolTipService.SetToolTip(MaximizeButton, maximized ? "还原" : "最大化");
+        var t = LocalizationService.Current;
+        ToolTipService.SetToolTip(MaximizeButton, maximized ? t["Settings.Restore"] : t["Settings.Maximize"]);
     }
 
     private void MinimizeButton_Click(object sender, RoutedEventArgs args)

@@ -37,7 +37,9 @@ public partial class App : Application
         _manager = new AirplayDeviceManager(_settings);
         _quickViewModel = new DeviceManagerViewModel(_manager);
         _mainWindow = new MainWindow(_quickViewModel);
-        ApplyGlobalAppearance(_settings.GetGlobalSettings());
+        var global = _settings.GetGlobalSettings();
+        LocalizationService.Current.SetLanguage(global.Language);
+        ApplyGlobalAppearance(global);
         SetApplicationIcon(_mainWindow);
         _mainWindow.MoreRequested += OnMoreRequested;
         _mainWindow.Closed += OnMainWindowClosed;
@@ -122,12 +124,24 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 外观保存后实时应用：窗口主题与设置窗口标题栏。
+    /// 设置保存后实时应用：窗口主题、设置窗口标题栏与界面语言。
     /// </summary>
     private void OnAppearanceApplied(GlobalSettings settings)
     {
         ApplyGlobalAppearance(settings);
         _settingsWindow?.ApplyTitleBarTheme(settings.Theme);
+        ApplyGlobalLanguage(settings);
+    }
+
+    /// <summary>
+    /// 把语言设置应用到本地化服务、所有窗口与托盘菜单。
+    /// </summary>
+    private void ApplyGlobalLanguage(GlobalSettings settings)
+    {
+        LocalizationService.Current.SetLanguage(settings.Language);
+        _mainWindow?.ApplyLocalization();
+        _settingsWindow?.ApplyLocalization();
+        _trayIcon?.UpdateMenuStrings();
     }
 
     private async void OnMainWindowClosed(object sender, WindowEventArgs args)

@@ -70,22 +70,22 @@
             SelectionChanged="SettingsNav_SelectionChanged">
 
         <NavigationView.MenuItems>
-            <NavigationViewItem Content="设备" Tag="Devices">
+            <NavigationViewItem x:Name="NavDevices" Content="设备" Tag="Devices">
                 <NavigationViewItem.Icon>
                     <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE772;" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="通用" Tag="General">
+            <NavigationViewItem x:Name="NavGeneral" Content="通用" Tag="General">
                 <NavigationViewItem.Icon>
                     <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE713;" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="外观" Tag="Appearance">
+            <NavigationViewItem x:Name="NavAppearance" Content="外观" Tag="Appearance">
                 <NavigationViewItem.Icon>
                     <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE790;" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="关于" Tag="About">
+            <NavigationViewItem x:Name="NavAbout" Content="关于" Tag="About">
                 <NavigationViewItem.Icon>
                     <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE946;" />
                 </NavigationViewItem.Icon>
@@ -105,8 +105,8 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="AirPlay 设备" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" VerticalAlignment="Center" />
-                        <Button Grid.Column="1" Command="{Binding DiscoverCommand}" ToolTipService.ToolTip="手动发现" Background="Transparent" BorderThickness="0" Padding="10,6">
+                        <TextBlock x:Name="DevicesPageTitle" Text="AirPlay 设备" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" VerticalAlignment="Center" />
+                        <Button x:Name="DiscoverButton" Grid.Column="1" Command="{Binding DiscoverCommand}" ToolTipService.ToolTip="手动发现" Background="Transparent" BorderThickness="0" Padding="10,6">
                             <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE72C;" FontSize="16" />
                         </Button>
                     </Grid>
@@ -168,22 +168,35 @@
                 </Grid.RowDefinitions>
                 <ScrollViewer Padding="24,16">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="通用" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" />
+                        <TextBlock x:Name="GeneralPageTitle" Text="通用" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" />
                         <controls:SettingItemCard
-                            Header="开关设置"
-                            Description="开关类型设置项（占位）">
+                            x:Name="LanguageCard"
+                            Header="语言"
+                            Description="选择应用界面显示语言">
                             <controls:SettingItemCard.ActionContent>
-                                <ToggleSwitch OnContent="开" OffContent="关" IsOn="{Binding GeneralToggle, Mode=TwoWay}" />
+                                <ComboBox MinWidth="180" SelectedIndex="{Binding Language, Mode=TwoWay}">
+                                    <ComboBoxItem Content="中文" />
+                                    <ComboBoxItem Content="English" />
+                                </ComboBox>
                             </controls:SettingItemCard.ActionContent>
                         </controls:SettingItemCard>
                         <controls:SettingItemCard
+                            x:Name="TogglePlaceholderCard"
+                            Header="开关设置"
+                            Description="开关类型设置项（占位）">
+                            <controls:SettingItemCard.ActionContent>
+                                <ToggleSwitch x:Name="TogglePlaceholderSwitch" OnContent="开" OffContent="关" IsOn="{Binding GeneralToggle, Mode=TwoWay}" />
+                            </controls:SettingItemCard.ActionContent>
+                        </controls:SettingItemCard>
+                        <controls:SettingItemCard
+                            x:Name="OptionPlaceholderCard"
                             Header="选择设置"
                             Description="选择类型设置项（占位）">
                             <controls:SettingItemCard.ActionContent>
                                 <ComboBox MinWidth="180" SelectedIndex="{Binding GeneralOption, Mode=TwoWay}">
-                                    <ComboBoxItem Content="选项一" />
-                                    <ComboBoxItem Content="选项二" />
-                                    <ComboBoxItem Content="选项三" />
+                                    <ComboBoxItem x:Name="OptionPlaceholder1" Content="选项一" />
+                                    <ComboBoxItem x:Name="OptionPlaceholder2" Content="选项二" />
+                                    <ComboBoxItem x:Name="OptionPlaceholder3" Content="选项三" />
                                 </ComboBox>
                             </controls:SettingItemCard.ActionContent>
                         </controls:SettingItemCard>
@@ -197,7 +210,7 @@
                     BorderBrush="{ThemeResource SettingsCardStrokeBrush}"
                     BorderThickness="0,1,0,0">
                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                        <Button Content="保存" Click="SaveButton_Click" Style="{StaticResource AccentButtonStyle}" />
+                        <Button x:Name="GeneralSaveButton" Content="保存" Click="SaveButton_Click" Style="{StaticResource AccentButtonStyle}" />
                     </StackPanel>
                 </Border>
             </Grid>
@@ -210,15 +223,16 @@
                 </Grid.RowDefinitions>
                 <ScrollViewer Padding="24,16">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="外观" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" />
+                        <TextBlock x:Name="AppearancePageTitle" Text="外观" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" />
                         <controls:SettingItemCard
+                            x:Name="ThemeCard"
                             Header="常用程序主题"
                             Description="跟随系统，或固定为深色、浅色">
                             <controls:SettingItemCard.ActionContent>
                                 <ComboBox MinWidth="180" SelectedIndex="{Binding AppearanceTheme, Mode=TwoWay}">
-                                    <ComboBoxItem Content="跟随系统" />
-                                    <ComboBoxItem Content="深色" />
-                                    <ComboBoxItem Content="浅色" />
+                                    <ComboBoxItem x:Name="ThemeFollowSystemOption" Content="跟随系统" />
+                                    <ComboBoxItem x:Name="ThemeDarkOption" Content="深色" />
+                                    <ComboBoxItem x:Name="ThemeLightOption" Content="浅色" />
                                 </ComboBox>
                             </controls:SettingItemCard.ActionContent>
                         </controls:SettingItemCard>
@@ -232,7 +246,7 @@
                     BorderBrush="{ThemeResource SettingsCardStrokeBrush}"
                     BorderThickness="0,1,0,0">
                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                        <Button Content="保存" Click="SaveButton_Click" Style="{StaticResource AccentButtonStyle}" />
+                        <Button x:Name="AppearanceSaveButton" Content="保存" Click="SaveButton_Click" Style="{StaticResource AccentButtonStyle}" />
                     </StackPanel>
                 </Border>
             </Grid>
@@ -240,7 +254,7 @@
             <!-- 关于页：版权信息与仓库占位。 -->
             <ScrollViewer x:Name="AboutPage" Visibility="Collapsed" Padding="24,16">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="关于" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" />
+                    <TextBlock x:Name="AboutPageTitle" Text="关于" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" />
                     <controls:SettingItemCard
                         Header="AirBlade"
                         Description="{Binding AppVersion}">
@@ -249,9 +263,11 @@
                         </controls:SettingItemCard.ActionContent>
                     </controls:SettingItemCard>
                     <controls:SettingItemCard
+                        x:Name="CopyrightCard"
                         Header="版权"
                         Description="© 2026 AirBlade 贡献者，保留所有权利。（占位）" />
                     <controls:SettingItemCard
+                        x:Name="RepositoryCard"
                         Header="代码仓库"
                         Description="https://github.com/airblade/airblade（占位）" />
                 </StackPanel>

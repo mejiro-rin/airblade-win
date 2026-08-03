@@ -50,7 +50,7 @@ public sealed class AirplaySessionService : IAsyncDisposable
             if (_handle is not null) return;
             _native.EnsureLoaded();
             var value = _native.CreateSession();
-            if (value == 0) throw new AirplayCoreException("无法创建 AirPlay 原生会话。", null);
+            if (value == 0) throw new AirplayCoreException(LocalizationService.Current["Error.CreateSessionFailed"], null);
             _handle = new SafeAirplaySessionHandle(value, _native);
             _pollTask = PollAsync(_pollCancellation.Token);
             AirplaySessionRegistry.Register(this);
@@ -61,7 +61,7 @@ public sealed class AirplaySessionService : IAsyncDisposable
     public async Task<IReadOnlyList<AirplayDiscoveredDevice>> DiscoverAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromSeconds(30)) throw new ArgumentOutOfRangeException(nameof(timeout), "发现超时必须在 1 毫秒到 30 秒之间。");
+        if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromSeconds(30)) throw new ArgumentOutOfRangeException(nameof(timeout), LocalizationService.Current["Error.DiscoveryTimeoutRange"]);
         cancellationToken.ThrowIfCancellationRequested();
         _native.EnsureLoaded();
         var results = await Task.Run(() =>
@@ -84,7 +84,7 @@ public sealed class AirplaySessionService : IAsyncDisposable
             var handle = RequireHandle();
             var state = GetSnapshot().State;
             if (state is AirplaySessionState.Pairing or AirplaySessionState.Connecting or AirplaySessionState.Streaming)
-                throw new InvalidOperationException("AirPlay 会话已连接或正在连接。");
+                throw new InvalidOperationException(LocalizationService.Current["Error.SessionBusy"]);
             PInvokeAirplayCoreNative.ThrowIfFailed(_native.SetConnectionPolicy(handle.Value, policy));
             PInvokeAirplayCoreNative.ThrowIfFailed(_native.Connect(handle.Value, endpoint));
             Interlocked.Exchange(ref _disconnectRequested, 0);
@@ -106,7 +106,7 @@ public sealed class AirplaySessionService : IAsyncDisposable
 
     public async Task SetVolumeAsync(float volumeDb, CancellationToken cancellationToken = default)
     {
-        if (volumeDb is < -144 or > 0) throw new ArgumentOutOfRangeException(nameof(volumeDb), "音量必须在 -144 到 0 dB 之间。");
+        if (volumeDb is < -144 or > 0) throw new ArgumentOutOfRangeException(nameof(volumeDb), LocalizationService.Current["Error.VolumeRange"]);
         ThrowIfDisposed();
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try { PInvokeAirplayCoreNative.ThrowIfFailed(_native.SetVolume(RequireHandle().Value, volumeDb)); }
@@ -159,7 +159,7 @@ public sealed class AirplaySessionService : IAsyncDisposable
         ErrorOccurred?.Invoke(this, exception);
     }
     private AirplaySessionSnapshot GetSnapshot() { lock (_stateGate) return _snapshot; }
-    private SafeAirplaySessionHandle RequireHandle() => _handle is { IsInvalid: false } handle ? handle : throw new InvalidOperationException("请先调用 InitializeAsync。");
+    private SafeAirplaySessionHandle RequireHandle() => _handle is { IsInvalid: false } handle ? handle : throw new InvalidOperationException(LocalizationService.Current["Error.InitializeFirst"]);
     private static AirplayTargetInfo[] CreateTargetBuffer(int count) => Enumerable.Range(0, count).Select(_ => new AirplayTargetInfo { DeviceId = new byte[32], DisplayName = new byte[128], Address = new byte[64] }).ToArray();
     private static AirplayDiscoveredDevice ToDevice(AirplayTargetInfo value) => new(ReadText(value.DeviceId), ReadText(value.DisplayName), ReadText(value.Address), value.Port);
     private static string ReadText(byte[] value) => Encoding.UTF8.GetString(value, 0, Array.IndexOf(value, (byte)0) is var end && end >= 0 ? end : value.Length);

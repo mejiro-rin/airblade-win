@@ -30,6 +30,7 @@ public sealed class DeviceManagerViewModel : ObservableObject, IDisposable
         SetVolumeCommand = new AsyncCommand(SetVolumeAsync, CanSetVolume);
         ToggleHiddenCommand = new AsyncCommand(ToggleHiddenAsync, parameter => !IsBusy && parameter is DeviceItemViewModel);
         _manager.DevicesChanged += OnDevicesChanged;
+        LocalizationService.Current.LanguageChanged += OnLanguageChanged;
         RefreshDevices();
     }
 
@@ -55,8 +56,8 @@ public sealed class DeviceManagerViewModel : ObservableObject, IDisposable
     }
     public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
     public Visibility ErrorVisibility => HasError ? Visibility.Visible : Visibility.Collapsed;
-    public string EmptyStateText => Devices.Count == 0 ? "未搜索到设备" : string.Empty;
-    public string AppVersion => $"版本 {typeof(DeviceManagerViewModel).Assembly.GetName().Version?.ToString(3) ?? "0.0.0"}";
+    public string EmptyStateText => Devices.Count == 0 ? LocalizationService.Current["Device.EmptyState"] : string.Empty;
+    public string AppVersion => LocalizationService.Current.Format("Common.VersionFormat", typeof(DeviceManagerViewModel).Assembly.GetName().Version?.ToString(3) ?? "0.0.0");
 
     public void ShowError(Exception exception) => ErrorMessage = exception?.Message ?? throw new ArgumentNullException(nameof(exception));
 
@@ -152,6 +153,24 @@ public sealed class DeviceManagerViewModel : ObservableObject, IDisposable
         else _synchronizationContext.Post(_ => RefreshDevices(), null);
     }
 
+    /// <summary>
+    /// 语言切换后刷新全部文本状态，并确保回到 UI 线程。
+    /// </summary>
+    private void OnLanguageChanged(object? sender, EventArgs args)
+    {
+        if (Volatile.Read(ref _disposed) != 0) return;
+        if (_synchronizationContext is null) RefreshLocalizedText();
+        else _synchronizationContext.Post(_ => RefreshLocalizedText(), null);
+    }
+
+    private void RefreshLocalizedText()
+    {
+        if (Volatile.Read(ref _disposed) != 0) return;
+        OnPropertyChanged(nameof(EmptyStateText));
+        OnPropertyChanged(nameof(AppVersion));
+        foreach (var device in Devices) device.RefreshLocalization();
+    }
+
     private void RefreshCommands()
     {
         DiscoverCommand.RaiseCanExecuteChanged();
@@ -166,5 +185,6 @@ public sealed class DeviceManagerViewModel : ObservableObject, IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _manager.DevicesChanged -= OnDevicesChanged;
+        LocalizationService.Current.LanguageChanged -= OnLanguageChanged;
     }
 }

@@ -26,6 +26,7 @@ public sealed class TrayIconHost : IDisposable
     private const nuint OpenSettingsCommand = 1002;
     private const nuint ExitCommand = 1003;
     private const uint MfString = 0x00000000;
+    private const uint MfByCommand = 0x00000400;
     private const uint MfSeparator = 0x00000800;
     private const uint TpmRightButton = 0x0002;
     private const uint TpmReturnCommand = 0x0100;
@@ -59,10 +60,10 @@ public sealed class TrayIconHost : IDisposable
             throw new InvalidOperationException("无法注册系统托盘消息处理。", Marshal.GetExceptionForHR(Marshal.GetHRForLastWin32Error()));
         _menuHandle = CreatePopupMenu();
         if (_menuHandle == IntPtr.Zero ||
-            !AppendMenu(_menuHandle, MfString, OpenConsoleCommand, "打开控制台") ||
-            !AppendMenu(_menuHandle, MfString, OpenSettingsCommand, "打开设置") ||
+            !AppendMenu(_menuHandle, MfString, OpenConsoleCommand, LocalizationService.Current["Tray.OpenConsole"]) ||
+            !AppendMenu(_menuHandle, MfString, OpenSettingsCommand, LocalizationService.Current["Tray.OpenSettings"]) ||
             !AppendMenu(_menuHandle, MfSeparator, 0, null) ||
-            !AppendMenu(_menuHandle, MfString, ExitCommand, "退出"))
+            !AppendMenu(_menuHandle, MfString, ExitCommand, LocalizationService.Current["Tray.Exit"]))
             throw new InvalidOperationException("无法创建 AirBlade 系统托盘菜单。");
 
         // 独立的全透明宿主窗口用于承载右键菜单：弹出菜单前必须把调用线程的窗口置为前台，
@@ -113,6 +114,17 @@ public sealed class TrayIconHost : IDisposable
         if (_menuHandle != IntPtr.Zero) _ = DestroyMenu(_menuHandle);
         if (_menuHostHandle != IntPtr.Zero) _ = DestroyWindow(_menuHostHandle);
         lock (Hosts) Hosts.Remove(_windowHandle);
+    }
+
+    /// <summary>
+    /// 按当前语言更新托盘右键菜单文本。
+    /// </summary>
+    public void UpdateMenuStrings()
+    {
+        var t = LocalizationService.Current;
+        _ = ModifyMenu(_menuHandle, OpenConsoleCommand, MfByCommand | MfString, OpenConsoleCommand, t["Tray.OpenConsole"]);
+        _ = ModifyMenu(_menuHandle, OpenSettingsCommand, MfByCommand | MfString, OpenSettingsCommand, t["Tray.OpenSettings"]);
+        _ = ModifyMenu(_menuHandle, ExitCommand, MfByCommand | MfString, ExitCommand, t["Tray.Exit"]);
     }
 
     private static IntPtr OnWindowMessage(IntPtr windowHandle, uint message, UIntPtr wParam, IntPtr lParam, nuint subclassId, UIntPtr referenceData)
@@ -210,6 +222,10 @@ public sealed class TrayIconHost : IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool AppendMenu(IntPtr menuHandle, uint flags, nuint itemId, string? text);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ModifyMenu(IntPtr menuHandle, nuint position, uint flags, nuint idNewItem, string? text);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

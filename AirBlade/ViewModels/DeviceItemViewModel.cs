@@ -1,5 +1,6 @@
 using AirBlade.Models;
 using AirBlade.Interop;
+using AirBlade.Services;
 
 namespace AirBlade.ViewModels;
 
@@ -31,24 +32,24 @@ public sealed class DeviceItemViewModel : ObservableObject
     public bool IsDiscovered => _snapshot.IsDiscovered;
     public bool IsHidden => _snapshot.IsHidden;
     public AirplaySessionState ConnectionState => _snapshot.ConnectionState;
-    public string DiscoveryStatusText => IsDiscovered ? "已发现" : "当前不可用";
+    public string DiscoveryStatusText => IsDiscovered ? T["Device.Discovered"] : T["Device.Unavailable"];
     public string ConnectionStatusText => ConnectionState switch
     {
-        AirplaySessionState.Idle => "未连接",
-        AirplaySessionState.Pairing => "正在配对",
-        AirplaySessionState.Connecting => "正在连接",
-        AirplaySessionState.Streaming => "已连接",
-        AirplaySessionState.Disconnected => "已断开",
-        AirplaySessionState.Failed => "连接失败",
-        _ => "未知状态",
+        AirplaySessionState.Idle => T["Device.State.Idle"],
+        AirplaySessionState.Pairing => T["Device.State.Pairing"],
+        AirplaySessionState.Connecting => T["Device.State.Connecting"],
+        AirplaySessionState.Streaming => T["Device.State.Streaming"],
+        AirplaySessionState.Disconnected => T["Device.State.Disconnected"],
+        AirplaySessionState.Failed => T["Device.State.Failed"],
+        _ => T["Device.State.Unknown"],
     };
-    public string HiddenActionText => IsHidden ? "显示设备" : "隐藏设备";
+    public string HiddenActionText => IsHidden ? T["Device.Show"] : T["Device.Hide"];
     public string? ErrorMessage => _snapshot.LastError?.Message ?? _operationErrorMessage;
     public bool CanAdjustVolume { get => _canAdjustVolume; private set => SetProperty(ref _canAdjustVolume, value); }
     public bool IsCurrentDevice { get => _isCurrentDevice; private set => SetProperty(ref _isCurrentDevice, value); }
     public string ActionGlyph => IsCurrentDevice ? "\uE71A" : "\uE768";
-    public string ActionToolTip => IsCurrentDevice ? "停止播放" : "播放到此设备";
-    public string ConnectionActionText => IsCurrentDevice ? "断开" : "连接";
+    public string ActionToolTip => IsCurrentDevice ? T["Device.Stop"] : T["Device.PlayHere"];
+    public string ConnectionActionText => IsCurrentDevice ? T["Device.Disconnect"] : T["Device.Connect"];
 
     public double EditableVolume
     {
@@ -65,6 +66,19 @@ public sealed class DeviceItemViewModel : ObservableObject
     /// 把 0 到 100 百分比线性映射回 -144 到 0 dB。
     /// </summary>
     public static float ToVolumeDb(double percent) => (float)Math.Clamp(-144 + 1.44 * percent, -144, 0);
+
+    /// <summary>
+    /// 语言切换后重新触发文本属性变更通知。
+    /// </summary>
+    public void RefreshLocalization()
+    {
+        OnPropertyChanged(nameof(DiscoveryStatusText));
+        OnPropertyChanged(nameof(ConnectionStatusText));
+        OnPropertyChanged(nameof(HiddenActionText));
+        OnPropertyChanged(nameof(ActionToolTip));
+        OnPropertyChanged(nameof(ConnectionActionText));
+        OnPropertyChanged(nameof(ErrorMessage));
+    }
 
     public void Update(AirplayDeviceSnapshot snapshot, bool isCurrentDevice)
     {
@@ -108,4 +122,6 @@ public sealed class DeviceItemViewModel : ObservableObject
         _operationErrorMessage = null;
         OnPropertyChanged(nameof(ErrorMessage));
     }
+
+    private static LocalizationService T => LocalizationService.Current;
 }

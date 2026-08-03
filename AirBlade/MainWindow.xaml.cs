@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using AirBlade.Services;
 using AirBlade.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -28,10 +29,19 @@ public sealed partial class MainWindow : Window
         Closed += OnClosed;
         // 首次显示前完成尺寸、位置和无边框配置，避免在激活回调里改布局干扰首帧合成。
         ConfigureWindowPlacement();
+        ApplyLocalization();
     }
 
     public DeviceManagerViewModel ViewModel { get; }
     public event EventHandler? MoreRequested;
+
+    /// <summary>
+    /// 按当前语言刷新快捷窗内的静态文本。
+    /// </summary>
+    public void ApplyLocalization()
+    {
+        ToolTipService.SetToolTip(MoreButton, LocalizationService.Current["MainWindow.MoreToolTip"]);
+    }
 
     /// <summary>
     /// 初始化完成后每八秒发现一次设备，平衡状态及时性与界面稳定性。

@@ -112,7 +112,7 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
             string? previousDeviceId;
             lock (_stateGate)
             {
-                if (!_devices.TryGetValue(deviceId, out device!)) throw new KeyNotFoundException($"找不到设备“{deviceId}”。");
+                if (!_devices.TryGetValue(deviceId, out device!)) throw new KeyNotFoundException(LocalizationService.Current.Format("Error.DeviceNotFound", deviceId));
                 previousDeviceId = _currentConnectedDeviceId;
             }
 
@@ -175,7 +175,7 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
             EnsureInitialized();
             lock (_stateGate)
             {
-                if (!_devices.ContainsKey(deviceId)) throw new KeyNotFoundException($"找不到设备“{deviceId}”。");
+                if (!_devices.ContainsKey(deviceId)) throw new KeyNotFoundException(LocalizationService.Current.Format("Error.DeviceNotFound", deviceId));
             }
 
             // 无论是否已连接都持久化音量，作为连接前预设；已连接时同时实时下发到设备。
@@ -205,7 +205,7 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
             EnsureInitialized();
             lock (_stateGate)
             {
-                if (!_devices.ContainsKey(deviceId)) throw new KeyNotFoundException($"找不到设备“{deviceId}”。");
+                if (!_devices.ContainsKey(deviceId)) throw new KeyNotFoundException(LocalizationService.Current.Format("Error.DeviceNotFound", deviceId));
             }
             await _settings.UpdateDeviceSettingsAsync(
                 deviceId,
@@ -228,7 +228,7 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
 
     private void EnsureInitialized()
     {
-        if (!_initialized) throw new InvalidOperationException("请先调用 InitializeAsync。");
+        if (!_initialized) throw new InvalidOperationException(LocalizationService.Current["Error.InitializeFirst"]);
     }
 
     private void EnsureCurrentDevice(string deviceId)
@@ -236,7 +236,7 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
         lock (_stateGate)
         {
             if (!StringComparer.Ordinal.Equals(_currentConnectedDeviceId, deviceId))
-                throw new InvalidOperationException("只能操作当前连接的设备。");
+                throw new InvalidOperationException(LocalizationService.Current["Error.CurrentDeviceOnly"]);
         }
     }
 
