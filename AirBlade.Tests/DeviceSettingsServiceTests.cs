@@ -30,9 +30,9 @@ public sealed class DeviceSettingsServiceTests
         Assert.IsFalse(device.AutoConnect);
         Assert.AreEqual(AirplayConnectionPolicy.Manual, device.ConnectionPolicy);
         Assert.IsTrue(device.RememberVolume);
-        Assert.AreEqual(-18f, device.VolumeDb);
+        Assert.AreEqual(-72f, device.VolumeDb);
         Assert.IsFalse(global.StartupEnabled);
-        Assert.AreEqual(TimeSpan.FromSeconds(5), global.DiscoveryTimeout);
+        Assert.AreEqual(TimeSpan.FromSeconds(2), global.DiscoveryTimeout);
         Assert.IsFalse(File.Exists(SettingsPath));
     }
 

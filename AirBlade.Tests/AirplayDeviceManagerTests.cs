@@ -112,7 +112,7 @@ public sealed class AirplayDeviceManagerTests
     }
 
     [TestMethod]
-    public async Task 不记忆音量时不会在连接后应用或持久化()
+    public async Task 连接时不应用未记忆预设但用户调节音量总是持久化()
     {
         var native = new FakeNative();
         native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
@@ -125,7 +125,8 @@ public sealed class AirplayDeviceManagerTests
         await manager.SetVolumeAsync("device-1", -6);
 
         CollectionAssert.AreEqual(new[] { -6f }, native.SetVolumes);
-        Assert.AreEqual(-10f, settings.GetDeviceSettings("device-1").VolumeDb);
+        Assert.AreEqual(-6f, settings.GetDeviceSettings("device-1").VolumeDb);
+        Assert.IsTrue(settings.GetDeviceSettings("device-1").RememberVolume);
     }
 
     [TestMethod]

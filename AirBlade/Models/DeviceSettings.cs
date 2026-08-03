@@ -10,7 +10,7 @@ public sealed record DeviceSettings
     public bool AutoConnect { get; init; } = false;
     public AirplayConnectionPolicy ConnectionPolicy { get; init; } = AirplayConnectionPolicy.Manual;
     public bool RememberVolume { get; init; } = true;
-    public float VolumeDb { get; init; } = -18;
+    public float VolumeDb { get; init; } = -72;
     public bool Hidden { get; init; } = false;
     public DateTimeOffset? LastConnectedAt { get; init; }
 }

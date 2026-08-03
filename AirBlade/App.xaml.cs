@@ -1,52 +1,145 @@
-﻿using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
-using Microsoft.UI.Xaml.Shapes;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
-using Windows.ApplicationModel;
-using Windows.ApplicationModel.Activation;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
+using AirBlade.Models;
 using AirBlade.Services;
+using AirBlade.ViewModels;
+using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 
-// To learn more about WinUI, the WinUI project structure,
-// and more about our project templates, see: http://aka.ms/winui-project-info.
+namespace AirBlade;
 
-namespace AirBlade
+/// <summary>
+/// 管理应用窗口与设备服务的共同生命周期。
+/// </summary>
+public partial class App : Application
 {
-    /// <summary>
-    /// Provides application-specific behavior to supplement the default Application class.
-    /// </summary>
-    public partial class App : Application
+    private MainWindow? _mainWindow;
+    private SettingsWindow? _settingsWindow;
+    private DeviceSettingsService? _settings;
+    private AirplayDeviceManager? _manager;
+    private DeviceManagerViewModel? _quickViewModel;
+    private DeviceManagerViewModel? _settingsViewModel;
+    private TrayIconHost? _trayIcon;
+    private int _isShuttingDown;
+
+    public App() => InitializeComponent();
+
+    protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
-        private Window? _window;
-
-        /// <summary>
-        /// Initializes the singleton application object.  This is the first line of authored code
-        /// executed, and as such is the logical equivalent of main() or WinMain().
-        /// </summary>
-        public App()
+        _settings = new DeviceSettingsService();
+        try
         {
-            InitializeComponent();
+            await _settings.InitializeAsync();
+        }
+        catch (Exception)
+        {
+            // 配置读取失败时使用默认配置继续启动。
+        }
+        _manager = new AirplayDeviceManager(_settings);
+        _quickViewModel = new DeviceManagerViewModel(_manager);
+        _mainWindow = new MainWindow(_quickViewModel);
+        ApplyGlobalAppearance(_settings.GetGlobalSettings());
+        SetApplicationIcon(_mainWindow);
+        _mainWindow.MoreRequested += OnMoreRequested;
+        _mainWindow.Closed += OnMainWindowClosed;
+        _trayIcon = new TrayIconHost(_mainWindow, ShowQuickWindow, ShowSettingsFromTray, ExitApplication);
+        _mainWindow.Activate();
+        _ = InitializeAndDiscoverAsync(_manager, _quickViewModel, _mainWindow);
+    }
+
+    private async Task InitializeAndDiscoverAsync(AirplayDeviceManager manager, DeviceManagerViewModel viewModel, MainWindow window)
+    {
+        try
+        {
+            await manager.InitializeAsync();
+            await viewModel.DiscoverAsync();
+            window.StartAutoRefresh();
+        }
+        catch (Exception exception)
+        {
+            viewModel.ShowError(exception);
+        }
+    }
+
+    private void OnMoreRequested(object? sender, EventArgs args) => OpenSettings();
+
+    private void OpenSettings()
+    {
+        if (_manager is null || _settings is null) return;
+        if (_settingsWindow is not null)
+        {
+            _settingsWindow.Activate();
+            return;
         }
 
-        /// <summary>
-        /// Invoked when the application is launched.
-        /// </summary>
-        /// <param name="args">Details about the launch request and process.</param>
-        protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
+        _settingsViewModel = new DeviceManagerViewModel(_manager, includeHidden: true);
+        _settingsWindow = new SettingsWindow(_settingsViewModel, _settings, OnAppearanceApplied);
+        ApplyGlobalAppearance(_settings.GetGlobalSettings());
+        SetApplicationIcon(_settingsWindow);
+        _settingsWindow.Closed += OnSettingsWindowClosed;
+        _settingsWindow.Activate();
+    }
+
+    // 托盘回调本身就运行在 UI 线程，直接同步调用可以保留前台权限，
+    // 让 ShowFromTray 里的激活在 Windows 允许前台切换的窗口内完成。
+    private void ShowQuickWindow() => _mainWindow?.ShowFromTray();
+
+    /// <summary>
+    /// 为所有窗口指定应用图标，保证任务栏、标题栏和 Alt+Tab 显示一致。
+    /// </summary>
+    private static void SetApplicationIcon(Window window) =>
+        window.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
+
+    private void ShowSettingsFromTray() => OpenSettings();
+
+    private void ExitApplication() => _mainWindow?.Close();
+
+    private void OnSettingsWindowClosed(object sender, WindowEventArgs args)
+    {
+        if (_settingsWindow is not null) _settingsWindow.Closed -= OnSettingsWindowClosed;
+        _settingsWindow = null;
+        _settingsViewModel?.Dispose();
+        _settingsViewModel = null;
+    }
+
+    /// <summary>
+    /// 把配色模式应用到已打开窗口的根元素（ElementTheme 支持恢复跟随系统）。
+    /// </summary>
+    private void ApplyGlobalAppearance(GlobalSettings settings)
+    {
+        if (_mainWindow is not null) ApplyWindowTheme(_mainWindow, settings.Theme);
+        if (_settingsWindow is not null) ApplyWindowTheme(_settingsWindow, settings.Theme);
+    }
+
+    private static void ApplyWindowTheme(Microsoft.UI.Xaml.Window window, ThemeMode theme)
+    {
+        if (window.Content is not FrameworkElement root) return;
+        root.RequestedTheme = theme switch
         {
-            _window = new MainWindow();
-            _window.Closed += async (_, _) => await AirplaySessionRegistry.DisposeAllAsync();
-            _window.Activate();
-        }
+            ThemeMode.Dark => ElementTheme.Dark,
+            ThemeMode.Light => ElementTheme.Light,
+            _ => ElementTheme.Default,
+        };
+    }
+
+    /// <summary>
+    /// 外观保存后实时应用：窗口主题与设置窗口标题栏。
+    /// </summary>
+    private void OnAppearanceApplied(GlobalSettings settings)
+    {
+        ApplyGlobalAppearance(settings);
+        _settingsWindow?.ApplyTitleBarTheme(settings.Theme);
+    }
+
+    private async void OnMainWindowClosed(object sender, WindowEventArgs args)
+    {
+        if (Interlocked.Exchange(ref _isShuttingDown, 1) != 0) return;
+        _trayIcon?.Dispose();
+        _trayIcon = null;
+        if (_settingsWindow is not null) _settingsWindow.Close();
+        _quickViewModel?.Dispose();
+        _quickViewModel = null;
+        if (_manager is not null) await _manager.DisposeAsync();
+        if (_settings is not null) await _settings.DisposeAsync();
+        await AirplaySessionRegistry.DisposeAllAsync();
     }
 }

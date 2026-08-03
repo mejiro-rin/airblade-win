@@ -83,7 +83,6 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
             {
                 foreach (var device in _devices.Values) device.MarkUndiscovered();
             }
-            RaiseDevicesChanged();
 
             var timeout = _settings.GetGlobalSettings().DiscoveryTimeout;
             var discovered = await _session.DiscoverAsync(timeout, operationCancellation.Token).ConfigureAwait(false);
@@ -155,6 +154,12 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
             EnsureInitialized();
             EnsureCurrentDevice(deviceId);
             await _session.DisconnectAsync(operationCancellation.Token).ConfigureAwait(false);
+            lock (_stateGate)
+            {
+                _currentConnectedDeviceId = null;
+                if (_devices.TryGetValue(deviceId, out var device)) device.ConnectionState = AirplaySessionState.Disconnected;
+            }
+            RaiseDevicesChanged();
         }
         finally { _operationGate.Release(); }
     }
@@ -168,12 +173,44 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
         try
         {
             EnsureInitialized();
-            EnsureCurrentDevice(deviceId);
-            await _session.SetVolumeAsync(volumeDb, operationCancellation.Token).ConfigureAwait(false);
-            var settings = _settings.GetDeviceSettings(deviceId);
-            if (settings.RememberVolume)
-                await _settings.UpdateDeviceSettingsAsync(deviceId, value => value with { VolumeDb = volumeDb }, operationCancellation.Token).ConfigureAwait(false);
+            lock (_stateGate)
+            {
+                if (!_devices.ContainsKey(deviceId)) throw new KeyNotFoundException($"找不到设备“{deviceId}”。");
+            }
+
+            // 无论是否已连接都持久化音量，作为连接前预设；已连接时同时实时下发到设备。
+            await _settings.UpdateDeviceSettingsAsync(
+                deviceId,
+                value => value with { VolumeDb = volumeDb, RememberVolume = true },
+                operationCancellation.Token).ConfigureAwait(false);
+            if (StringComparer.Ordinal.Equals(CurrentConnectedDeviceId, deviceId))
+                await _session.SetVolumeAsync(volumeDb, operationCancellation.Token).ConfigureAwait(false);
             lock (_stateGate) _devices[deviceId].VolumeDb = volumeDb;
+            RaiseDevicesChanged();
+        }
+        finally { _operationGate.Release(); }
+    }
+
+    /// <summary>
+    /// 更新设备在快捷列表中的可见性，并立即通知界面刷新。
+    /// </summary>
+    public async Task SetDeviceHiddenAsync(string deviceId, bool hidden, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
+        ThrowIfDisposed();
+        using var operationCancellation = CreateOperationCancellation(cancellationToken);
+        await EnterOperationAsync(operationCancellation.Token).ConfigureAwait(false);
+        try
+        {
+            EnsureInitialized();
+            lock (_stateGate)
+            {
+                if (!_devices.ContainsKey(deviceId)) throw new KeyNotFoundException($"找不到设备“{deviceId}”。");
+            }
+            await _settings.UpdateDeviceSettingsAsync(
+                deviceId,
+                value => value with { Hidden = hidden },
+                operationCancellation.Token).ConfigureAwait(false);
             RaiseDevicesChanged();
         }
         finally { _operationGate.Release(); }
@@ -239,7 +276,16 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
     }
 
     private void RaiseDevicesChanged() => DevicesChanged?.Invoke(this, EventArgs.Empty);
-    private static AirplayDeviceSnapshot ToSnapshot(AirplayDevice device) => new(device.DeviceId, device.DisplayName, device.Address, device.Port, device.ConnectionState, device.VolumeDb, device.LastError, device.IsDiscovered);
+    private AirplayDeviceSnapshot ToSnapshot(AirplayDevice device) => new(
+        device.DeviceId,
+        device.DisplayName,
+        device.Address,
+        device.Port,
+        device.ConnectionState,
+        device.VolumeDb,
+        device.LastError,
+        device.IsDiscovered,
+        _settings.GetDeviceSettings(device.DeviceId).Hidden);
     private void UnsubscribeSessionEvents()
     {
         _session.StateChanged -= OnSessionStateChanged;

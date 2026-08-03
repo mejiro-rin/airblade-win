@@ -199,6 +199,7 @@ public sealed class DeviceSettingsService : IAsyncDisposable
     private static void ValidateGlobalSettings(GlobalSettings settings)
     {
         if (!Enum.IsDefined(settings.DefaultConnectionPolicy)) throw new InvalidDataException("默认连接策略无效。");
+        if (!Enum.IsDefined(settings.Theme)) throw new InvalidDataException("主题模式无效。");
         ValidateVolume(settings.DefaultVolumeDb, "默认音量");
         if (settings.DiscoveryTimeout <= TimeSpan.Zero || settings.DiscoveryTimeout > TimeSpan.FromSeconds(30))
             throw new InvalidDataException("发现超时时间必须在 1 毫秒到 30 秒之间。");
