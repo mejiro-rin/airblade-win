@@ -43,10 +43,6 @@ public sealed class LocalizationService
 
         // 设置窗口
         ["Settings.Title"] = ("AirBlade 设置", "AirBlade Settings"),
-        ["Settings.Minimize"] = ("最小化", "Minimize"),
-        ["Settings.Maximize"] = ("最大化", "Maximize"),
-        ["Settings.Restore"] = ("还原", "Restore"),
-        ["Settings.Close"] = ("关闭", "Close"),
         ["Settings.Nav.Devices"] = ("设备", "Devices"),
         ["Settings.Nav.General"] = ("通用", "General"),
         ["Settings.Nav.Appearance"] = ("外观", "Appearance"),

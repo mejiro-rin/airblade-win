@@ -47,8 +47,10 @@ public sealed partial class SettingsWindow : Window
         Draft.CopyFrom(_appliedSettings);
         ApplyLocalization();
         ApplyTitleBarTheme(global.Theme);
+        if (Content is FrameworkElement root) root.ActualThemeChanged += OnActualThemeChanged;
         var titleBar = AppWindow.TitleBar;
         titleBar.ExtendsContentIntoTitleBar = true;
+        UpdateNativeCaptionButtonColors();
         UpdateTitleBarDragRectangles(titleBar);
         AppWindow.Changed += OnAppWindowChanged;
         Activated += OnWindowActivated;
@@ -61,6 +63,30 @@ public sealed partial class SettingsWindow : Window
     }
 
     public DeviceManagerViewModel ViewModel { get; }
+
+    /// <summary>
+    /// 设置 ExtendsContentIntoTitleBar 后仍保留的原生 caption 按钮区域：
+    /// 背景全部透明（避免默认黑块），前景色（系统绘制的图标）跟随当前主题，
+    /// 悬停/按下时给一个与主题匹配的半透明高亮。
+    /// </summary>
+    private void UpdateNativeCaptionButtonColors()
+    {
+        var dark = _themeDictionary == "Dark";
+        var highlight = dark ? (byte)255 : (byte)0;
+        var titleBar = AppWindow.TitleBar;
+        titleBar.ButtonBackgroundColor = Windows.UI.Color.FromArgb(0, 0, 0, 0);
+        titleBar.ButtonInactiveBackgroundColor = Windows.UI.Color.FromArgb(0, 0, 0, 0);
+        titleBar.ButtonHoverBackgroundColor = Windows.UI.Color.FromArgb(24, highlight, highlight, highlight);
+        titleBar.ButtonPressedBackgroundColor = Windows.UI.Color.FromArgb(48, highlight, highlight, highlight);
+        var foreground = ThemeBrush(_themeDictionary, "SettingsTitleBarForegroundBrush")?.Color
+            ?? (dark ? Windows.UI.Color.FromArgb(255, 255, 255, 255) : Windows.UI.Color.FromArgb(255, 26, 26, 26));
+        var inactiveForeground = ThemeBrush(_themeDictionary, "SettingsTitleBarInactiveForegroundBrush")?.Color
+            ?? foreground;
+        titleBar.ButtonForegroundColor = foreground;
+        titleBar.ButtonInactiveForegroundColor = inactiveForeground;
+        titleBar.ButtonHoverForegroundColor = foreground;
+        titleBar.ButtonPressedForegroundColor = foreground;
+    }
 
     /// <summary>
     /// 通用/外观页设置项的草稿值，保存前只修改这里。
@@ -189,9 +215,6 @@ public sealed partial class SettingsWindow : Window
         var t = LocalizationService.Current;
         Title = t["Settings.Title"];
         TitleBarTitle.Text = t["Settings.Title"];
-        ToolTipService.SetToolTip(MinimizeButton, t["Settings.Minimize"]);
-        ToolTipService.SetToolTip(MaximizeButton, t["Settings.Maximize"]);
-        ToolTipService.SetToolTip(CloseButton, t["Settings.Close"]);
         NavDevices.Content = t["Settings.Nav.Devices"];
         NavGeneral.Content = t["Settings.Nav.General"];
         NavAppearance.Content = t["Settings.Nav.Appearance"];
@@ -224,7 +247,6 @@ public sealed partial class SettingsWindow : Window
         CopyrightCard.Header = t["Settings.About.Copyright"];
         CopyrightCard.Description = t["Settings.About.CopyrightDescription"];
         RepositoryCard.Header = t["Settings.About.Repository"];
-        UpdateMaximizeGlyph();
     }
 
     /// <summary>
@@ -235,15 +257,27 @@ public sealed partial class SettingsWindow : Window
     {
         _currentTheme = theme;
         ApplyTitleBarThemeCore(theme);
+        // 窗口首次布局前 ActualTheme 尚未确定，延迟一帧后按实际主题再刷新一次，
+        // 避免初始按默认主题计算导致按钮图标颜色错误。
+        _ = DispatcherQueue.TryEnqueue(() => ApplyTitleBarThemeCore(_currentTheme));
     }
 
+    /// <summary>
+    /// 窗口实际主题变化（跟随系统切换或固定主题切换）时，重新计算标题栏配色。
+    /// </summary>
+    private void OnActualThemeChanged(FrameworkElement sender, object args) => ApplyTitleBarThemeCore(_currentTheme);
+
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
-        => UpdateTitleBarState(args.WindowActivationState != WindowActivationState.Deactivated);
+    {
+        _titleBarActive = args.WindowActivationState != WindowActivationState.Deactivated;
+        // 窗口真正激活时 ActualTheme 才稳定，此时必须重新计算主题字典，
+        // 不能复用构造函数里在布局完成前算出的旧值，否则深浅色按钮颜色会锁定错误主题。
+        ApplyTitleBarThemeCore(_currentTheme);
+    }
 
     private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
         if (args.DidSizeChange) UpdateTitleBarDragRectangles(AppWindow.TitleBar);
-        if (args.DidPresenterChange) UpdateMaximizeGlyph();
     }
 
     /// <summary>
@@ -251,28 +285,23 @@ public sealed partial class SettingsWindow : Window
     /// </summary>
     private void OnSystemThemeChanged(UISettings sender, object args)
     {
-        _ = DispatcherQueue.TryEnqueue(() =>
-        {
-            if (_currentTheme != ThemeMode.Dark) ApplyTitleBarThemeCore(_currentTheme);
-        });
+        _ = DispatcherQueue.TryEnqueue(() => ApplyTitleBarThemeCore(_currentTheme));
     }
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
         _uiSettings.ColorValuesChanged -= OnSystemThemeChanged;
+        if (Content is FrameworkElement root) root.ActualThemeChanged -= OnActualThemeChanged;
         _volumeThrottleTimer.Stop();
         _volumeThrottleTimer.Tick -= OnVolumeThrottleTick;
     }
 
     private void ApplyTitleBarThemeCore(ThemeMode theme)
     {
-        var actualDark = theme switch
-        {
-            ThemeMode.Dark => true,
-            ThemeMode.Light => false,
-            _ => Content is FrameworkElement root && root.ActualTheme == ElementTheme.Dark,
-        };
-        _themeDictionary = actualDark ? "Dark" : "Light";
+        _currentTheme = theme;
+        // 以窗口实际渲染主题为准，与 XAML 中 ThemeResource 的解析结果保持一致，
+        // 避免“用户设置”与“实际主题”不一致导致按钮前景色停留在错误主题。
+        _themeDictionary = Content is FrameworkElement root && root.ActualTheme == ElementTheme.Dark ? "Dark" : "Light";
         UpdateTitleBarState(_titleBarActive);
     }
 
@@ -283,20 +312,14 @@ public sealed partial class SettingsWindow : Window
     {
         _titleBarActive = isActive;
         var backgroundKey = isActive ? "SettingsTitleBarBackgroundBrush" : "SettingsTitleBarInactiveBackgroundBrush";
-        var foregroundKey = isActive ? "SettingsTitleBarForegroundBrush" : "SettingsTitleBarInactiveForegroundBrush";
         TitleBarArea.Background = ThemeBrush(_themeDictionary, backgroundKey)
             ?? new SolidColorBrush(_themeDictionary == "Dark" ? Windows.UI.Color.FromArgb(255, 40, 40, 40) : Windows.UI.Color.FromArgb(255, 245, 245, 245));
-        // 资源查找失败时用与主题一致的硬编码兜底，避免 Foreground 变成 null 让图标退回默认黑色。
-        var foreground = ThemeBrush(_themeDictionary, foregroundKey)
-            ?? new SolidColorBrush(_themeDictionary == "Dark" ? Windows.UI.Color.FromArgb(255, 255, 255, 255) : Windows.UI.Color.FromArgb(255, 26, 26, 26));
-        TitleBarTitle.Foreground = foreground;
-        MinimizeButton.Foreground = foreground;
-        MaximizeButton.Foreground = foreground;
-        CloseButton.Foreground = foreground;
-        MinimizePath.Stroke = foreground;
-        MaximizePath.Stroke = foreground;
-        RestorePath.Stroke = foreground;
-        ClosePath.Stroke = foreground;
+        // 图标与标题的前景色完全交给 XAML 的 ThemeResource 按实际主题自动解析，
+        // 这里不再直接赋值，避免 code-behind 用错误的主题字典把颜色覆盖成黑色。
+        // 失焦时仅通过透明度弱化，不改变颜色本身。
+        var opacity = isActive ? 1.0 : 0.72;
+        TitleBarTitle.Opacity = opacity;
+        UpdateNativeCaptionButtonColors();
     }
 
     /// <summary>
@@ -307,29 +330,6 @@ public sealed partial class SettingsWindow : Window
         var width = Math.Max(0, AppWindow.Size.Width - 140);
         titleBar.SetDragRectangles([new Windows.Graphics.RectInt32(0, 0, width, 32)]);
     }
-
-    private void UpdateMaximizeGlyph()
-    {
-        var maximized = AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized };
-        MaximizePath.Visibility = maximized ? Visibility.Collapsed : Visibility.Visible;
-        RestorePath.Visibility = maximized ? Visibility.Visible : Visibility.Collapsed;
-        var t = LocalizationService.Current;
-        ToolTipService.SetToolTip(MaximizeButton, maximized ? t["Settings.Restore"] : t["Settings.Maximize"]);
-    }
-
-    private void MinimizeButton_Click(object sender, RoutedEventArgs args)
-    {
-        if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Minimize();
-    }
-
-    private void MaximizeButton_Click(object sender, RoutedEventArgs args)
-    {
-        if (AppWindow.Presenter is not OverlappedPresenter presenter) return;
-        if (presenter.State == OverlappedPresenterState.Maximized) presenter.Restore();
-        else presenter.Maximize();
-    }
-
-    private void CloseButton_Click(object sender, RoutedEventArgs args) => Close();
 
     /// <summary>
     /// 从指定主题字典读取画刷。

@@ -8,27 +8,6 @@
     Title="AirBlade 设置">
 
     <Grid>
-        <Grid.Resources>
-            <Style x:Key="TitleBarButtonStyle" TargetType="Button">
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="BorderThickness" Value="0" />
-                <Setter Property="Width" Value="46" />
-                <Setter Property="Height" Value="32" />
-                <Setter Property="Padding" Value="0" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="Button">
-                            <Grid Background="Transparent">
-                                <ContentPresenter
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    Foreground="{TemplateBinding Foreground}" />
-                            </Grid>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-        </Grid.Resources>
         <Grid.RowDefinitions>
             <RowDefinition Height="32" />
             <RowDefinition Height="*" />
@@ -36,25 +15,7 @@
 
         <!-- 自绘标题栏：聚焦/失焦颜色完全由应用按主题控制。 -->
         <Grid x:Name="TitleBarArea" Grid.Row="0" Background="{ThemeResource SettingsTitleBarBackgroundBrush}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
             <TextBlock x:Name="TitleBarTitle" Text="AirBlade 设置" VerticalAlignment="Center" Margin="16,0" FontSize="12" Foreground="{ThemeResource SettingsTitleBarForegroundBrush}" />
-            <StackPanel Grid.Column="1" Orientation="Horizontal">
-                <Button x:Name="MinimizeButton" Click="MinimizeButton_Click" Style="{StaticResource TitleBarButtonStyle}" Background="Transparent" ToolTipService.ToolTip="最小化">
-                    <Path x:Name="MinimizePath" Width="14" Height="14" Stretch="Uniform" Stroke="{ThemeResource SettingsTitleBarForegroundBrush}" StrokeThickness="1.5" Data="M 1 12 H 23 M 1 19 H 23" />
-                </Button>
-                <Button x:Name="MaximizeButton" Click="MaximizeButton_Click" Style="{StaticResource TitleBarButtonStyle}" Background="Transparent" ToolTipService.ToolTip="最大化">
-                    <StackPanel>
-                        <Path x:Name="MaximizePath" Width="14" Height="14" Stretch="Uniform" Stroke="{ThemeResource SettingsTitleBarForegroundBrush}" StrokeThickness="1.5" Data="M 2 2 H 22 V 22 H 2 Z" />
-                        <Path x:Name="RestorePath" Width="14" Height="14" Stretch="Uniform" Stroke="{ThemeResource SettingsTitleBarForegroundBrush}" StrokeThickness="1.5" Data="M 9 6 H 20 V 18 H 9 Z M 4 2 H 15 V 14 H 4 Z" Visibility="Collapsed" />
-                    </StackPanel>
-                </Button>
-                <Button x:Name="CloseButton" Click="CloseButton_Click" Style="{StaticResource TitleBarButtonStyle}" Background="Transparent" ToolTipService.ToolTip="关闭">
-                    <Path x:Name="ClosePath" Width="14" Height="14" Stretch="Uniform" Stroke="{ThemeResource SettingsTitleBarForegroundBrush}" StrokeThickness="1.5" Data="M 2 2 L 22 22 M 22 2 L 2 22" />
-                </Button>
-            </StackPanel>
         </Grid>
 
         <!-- 与 Windows 设置同款的左侧导航：选中项自动显示灰色背景。 -->
