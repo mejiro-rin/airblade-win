@@ -255,7 +255,7 @@
                 </Border>
             </Grid>
 
-            <!-- 关于页：版权信息与仓库占位。 -->
+            <!-- 关于页：版本、版权、仓库、隐私与许可信息。 -->
             <ScrollViewer x:Name="AboutPage" Visibility="Collapsed" Padding="24,16">
                 <StackPanel Spacing="8">
                     <TextBlock x:Name="AboutPageTitle" Text="关于" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" />
@@ -269,11 +269,51 @@
                     <controls:SettingItemCard
                         x:Name="CopyrightCard"
                         Header="版权"
-                        Description="© 2026 AirBlade 贡献者，保留所有权利。（占位）" />
+                        Description="© 2026 AirBlade 贡献者，保留所有权利。" />
                     <controls:SettingItemCard
                         x:Name="RepositoryCard"
                         Header="代码仓库"
-                        Description="https://github.com/airblade/airblade（占位）" />
+                        Description="https://github.com/mejiro-rin/airblade-win">
+                        <controls:SettingItemCard.ActionContent>
+                            <Button x:Name="OpenRepositoryButton" Content="打开" Click="OpenRepositoryButton_Click" />
+                        </controls:SettingItemCard.ActionContent>
+                    </controls:SettingItemCard>
+                    <controls:SettingItemCard
+                        x:Name="PrivacyCard"
+                        Header="隐私"
+                        Description="AirBlade 不会收集、上传或出售你的任何个人数据。" />
+                    <controls:SettingItemCard
+                        x:Name="LicensesCard"
+                        Header="开源许可"
+                        Description="本应用基于多种开源组件构建，点击查看完整许可清单">
+                        <controls:SettingItemCard.ActionContent>
+                            <Button x:Name="ViewLicensesButton" Content="查看" Click="ViewLicensesButton_Click" />
+                        </controls:SettingItemCard.ActionContent>
+                    </controls:SettingItemCard>
+                    <controls:SettingItemCard
+                        x:Name="UpdateCard"
+                        Header="检查更新"
+                        Description="当前版本 0.4.0">
+                        <controls:SettingItemCard.ActionContent>
+                            <Button x:Name="CheckUpdatesButton" Content="检查更新" Click="CheckUpdatesButton_Click" />
+                        </controls:SettingItemCard.ActionContent>
+                    </controls:SettingItemCard>
+                    <controls:SettingItemCard
+                        x:Name="DiagnosticsCard"
+                        Header="诊断信息"
+                        Description="复制系统与应用信息，便于反馈问题时粘贴">
+                        <controls:SettingItemCard.ActionContent>
+                            <Button x:Name="CopyDiagnosticsButton" Content="复制" Click="CopyDiagnosticsButton_Click" />
+                        </controls:SettingItemCard.ActionContent>
+                    </controls:SettingItemCard>
+                    <controls:SettingItemCard
+                        x:Name="ReportIssueCard"
+                        Header="报告问题"
+                        Description="在 GitHub Issues 中提交反馈">
+                        <controls:SettingItemCard.ActionContent>
+                            <Button x:Name="ReportIssueButton" Content="打开" Click="ReportIssueButton_Click" />
+                        </controls:SettingItemCard.ActionContent>
+                    </controls:SettingItemCard>
                 </StackPanel>
             </ScrollViewer>
         </Grid>

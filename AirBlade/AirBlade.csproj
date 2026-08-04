@@ -24,6 +24,10 @@
   <ItemGroup>
     <Content Include="Assets\*.png" />
     <Content Include="Assets\AppIcon.ico" />
+    <Content Include="..\THIRD-PARTY-LICENSES.txt" Link="THIRD-PARTY-LICENSES.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

@@ -7,7 +7,9 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
 
@@ -23,6 +25,7 @@ public sealed partial class SettingsWindow : Window
     private readonly Action<GlobalSettings>? _appearanceApplied;
     private readonly UISettings _uiSettings = new();
     private readonly DispatcherTimer _volumeThrottleTimer = new() { Interval = TimeSpan.FromMilliseconds(150) };
+    private readonly DispatcherTimer _diagnosticsResetTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private DeviceItemViewModel? _throttledVolumeDevice;
     private DeviceItemViewModel? _lastThrottledDevice;
     private double _lastThrottledValue;
@@ -31,6 +34,20 @@ public sealed partial class SettingsWindow : Window
     private bool _titleBarActive = true;
     private bool _closed;
     private FrameworkElement? _titleBarRoot;
+
+    // 关于页使用的固定链接与许可证文件。
+    private const string RepositoryUrl = "https://github.com/mejiro-rin/airblade-win";
+    private const string ReleasesPageUrl = RepositoryUrl + "/releases";
+    private const string IssuesNewUrl = RepositoryUrl + "/issues/new";
+    private const string LicensesFileName = "THIRD-PARTY-LICENSES.txt";
+
+    // 检查更新的状态缓存,语言切换后按此重新渲染卡片文案。
+    private UpdateCheckStatus _updateStatus;
+    private Version? _updateRemoteVersion;
+    private string? _updateReleaseUrl;
+    private bool _updateCheckInFlight;
+    private bool _updateChecked;
+    private bool _updateDownloadMode;
 
     public SettingsWindow(DeviceManagerViewModel viewModel, DeviceSettingsService settings, Action<GlobalSettings>? appearanceApplied = null)
     {
@@ -62,6 +79,7 @@ public sealed partial class SettingsWindow : Window
         Activated += OnWindowActivated;
         _uiSettings.ColorValuesChanged += OnSystemThemeChanged;
         _volumeThrottleTimer.Tick += OnVolumeThrottleTick;
+        _diagnosticsResetTimer.Tick += OnDiagnosticsResetTick;
         Closed += OnClosed;
         if (AppWindow.Presenter is OverlappedPresenter presenter)
             presenter.PreferredMinimumWidth = 1111;
@@ -246,8 +264,22 @@ public sealed partial class SettingsWindow : Window
         ThemeLightOption.Content = t["Settings.Appearance.ThemeLight"];
         AboutPageTitle.Text = t["Settings.About.Title"];
         CopyrightCard.Header = t["Settings.About.Copyright"];
-        CopyrightCard.Description = t["Settings.About.CopyrightDescription"];
+        CopyrightCard.Description = t.Format("Settings.About.CopyrightDescription", DateTime.Now.Year);
         RepositoryCard.Header = t["Settings.About.Repository"];
+        OpenRepositoryButton.Content = t["Settings.About.Open"];
+        PrivacyCard.Header = t["Settings.About.Privacy"];
+        PrivacyCard.Description = t["Settings.About.PrivacyDescription"];
+        LicensesCard.Header = t["Settings.About.OpenSourceLicenses"];
+        LicensesCard.Description = t["Settings.About.OpenSourceLicensesDescription"];
+        ViewLicensesButton.Content = t["Settings.About.View"];
+        UpdateCard.Header = t["Settings.About.CheckForUpdates"];
+        DiagnosticsCard.Header = t["Settings.About.CopyDiagnostics"];
+        DiagnosticsCard.Description = t["Settings.About.CopyDiagnosticsDescription"];
+        CopyDiagnosticsButton.Content = t["Settings.About.Copy"];
+        ReportIssueCard.Header = t["Settings.About.ReportIssue"];
+        ReportIssueCard.Description = t["Settings.About.ReportIssueDescription"];
+        ReportIssueButton.Content = t["Settings.About.Open"];
+        ApplyUpdateStatusText();
     }
 
     /// <summary>
@@ -310,6 +342,8 @@ public sealed partial class SettingsWindow : Window
         if (_titleBarRoot is not null) _titleBarRoot.ActualThemeChanged -= OnActualThemeChanged;
         _volumeThrottleTimer.Stop();
         _volumeThrottleTimer.Tick -= OnVolumeThrottleTick;
+        _diagnosticsResetTimer.Stop();
+        _diagnosticsResetTimer.Tick -= OnDiagnosticsResetTick;
     }
 
     private void ApplyTitleBarThemeCore(ThemeMode theme)
@@ -368,6 +402,170 @@ public sealed partial class SettingsWindow : Window
             return brush;
         }
         return null;
+    }
+
+    /// <summary>
+    /// 打开项目主页。
+    /// </summary>
+    private async void OpenRepositoryButton_Click(object sender, RoutedEventArgs e) => await OpenUrlAsync(RepositoryUrl);
+
+    /// <summary>
+    /// 弹出第三方许可证滚动列表。
+    /// </summary>
+    private async void ViewLicensesButton_Click(object sender, RoutedEventArgs e)
+    {
+        var t = LocalizationService.Current;
+        var licensesPath = Path.Combine(AppContext.BaseDirectory, LicensesFileName);
+        string[] lines;
+        try
+        {
+            lines = await File.ReadAllLinesAsync(licensesPath);
+        }
+        catch (Exception)
+        {
+            // 文件缺失或不可读时在弹窗里给出明确提示,不中断界面。
+            lines = [t["Settings.About.LicensesError"]];
+        }
+
+        // 许可证全文较大,用虚拟化列表逐行渲染;若塞进单个 TextBlock 做自动换行,打开弹窗时会明显卡顿。
+        var lineTemplate = (DataTemplate)XamlReader.Load(
+            "<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\">" +
+            "<TextBlock Text=\"{Binding}\" TextWrapping=\"Wrap\" Margin=\"0,2\"/></DataTemplate>");
+        var licenseList = new ListView
+        {
+            Width = 640,
+            Height = 480,
+            SelectionMode = ListViewSelectionMode.None,
+            IsItemClickEnabled = false,
+            ItemsSource = lines,
+            ItemTemplate = lineTemplate,
+        };
+        var dialog = new ContentDialog
+        {
+            Title = t["Settings.About.OpenSourceLicenses"],
+            Content = licenseList,
+            PrimaryButtonText = t["Settings.About.Close"],
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Root.Content.XamlRoot,
+        };
+        await dialog.ShowAsync();
+    }
+
+    /// <summary>
+    /// 检查更新或前往下载;发现新版本后按钮切换为"前往下载"。
+    /// </summary>
+    private async void CheckUpdatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_updateDownloadMode)
+        {
+            await OpenUrlAsync(_updateReleaseUrl ?? ReleasesPageUrl);
+            return;
+        }
+
+        if (_updateCheckInFlight)
+        {
+            return;
+        }
+
+        _updateCheckInFlight = true;
+        CheckUpdatesButton.IsEnabled = false;
+        ApplyUpdateStatusText();
+
+        using var checker = new UpdateChecker();
+        var result = await checker.CheckAsync();
+
+        _updateCheckInFlight = false;
+        _updateChecked = true;
+        _updateStatus = result.Status;
+        _updateRemoteVersion = result.RemoteVersion;
+        _updateReleaseUrl = result.ReleaseUrl;
+        _updateDownloadMode = result.Status == UpdateCheckStatus.NewAvailable;
+        CheckUpdatesButton.IsEnabled = true;
+        ApplyUpdateStatusText();
+    }
+
+    /// <summary>
+    /// 按当前检查状态刷新更新卡片的描述与按钮文本。
+    /// </summary>
+    private void ApplyUpdateStatusText()
+    {
+        var t = LocalizationService.Current;
+        if (_updateCheckInFlight)
+        {
+            UpdateCard.Description = t["Settings.About.Checking"];
+            CheckUpdatesButton.Content = t["Settings.About.CheckForUpdates"];
+            return;
+        }
+
+        if (!_updateChecked)
+        {
+            UpdateCard.Description = t.Format("Settings.About.CurrentVersion", UpdateChecker.CurrentVersion);
+            CheckUpdatesButton.Content = t["Settings.About.CheckForUpdates"];
+            return;
+        }
+
+        switch (_updateStatus)
+        {
+            case UpdateCheckStatus.UpToDate:
+                UpdateCard.Description = t.Format("Settings.About.UpToDate", _updateRemoteVersion ?? UpdateChecker.CurrentVersion);
+                CheckUpdatesButton.Content = t["Settings.About.CheckForUpdates"];
+                break;
+            case UpdateCheckStatus.NewAvailable:
+                UpdateCard.Description = t.Format("Settings.About.FoundNewVersion", _updateRemoteVersion ?? UpdateChecker.CurrentVersion);
+                CheckUpdatesButton.Content = t["Settings.About.GoDownload"];
+                break;
+            case UpdateCheckStatus.NoReleases:
+                UpdateCard.Description = t["Settings.About.NoReleases"];
+                CheckUpdatesButton.Content = t["Settings.About.CheckForUpdates"];
+                break;
+            default:
+                UpdateCard.Description = t["Settings.About.CheckFailed"];
+                CheckUpdatesButton.Content = t["Settings.About.CheckForUpdates"];
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 复制诊断信息到剪贴板,并短暂显示"已复制"提示。
+    /// </summary>
+    private void CopyDiagnosticsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dataPackage = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+        dataPackage.SetText(DiagnosticsInfo.Build());
+        Clipboard.SetContent(dataPackage);
+        DiagnosticsCard.Description = LocalizationService.Current["Settings.About.Copied"];
+        _diagnosticsResetTimer.Stop();
+        _diagnosticsResetTimer.Start();
+    }
+
+    /// <summary>
+    /// 复制提示超时后恢复诊断卡片的默认描述。
+    /// </summary>
+    private void OnDiagnosticsResetTick(object? sender, object args)
+    {
+        _diagnosticsResetTimer.Stop();
+        DiagnosticsCard.Description = LocalizationService.Current["Settings.About.CopyDiagnosticsDescription"];
+    }
+
+    /// <summary>
+    /// 打开 GitHub Issues 新建页。
+    /// </summary>
+    private async void ReportIssueButton_Click(object sender, RoutedEventArgs e) => await OpenUrlAsync(IssuesNewUrl);
+
+    /// <summary>
+    /// 使用系统默认浏览器打开链接;链接无效时静默忽略。
+    /// </summary>
+    private async Task OpenUrlAsync(string url)
+    {
+        try
+        {
+            var uri = new Uri(url);
+            await Windows.System.Launcher.LaunchUriAsync(uri);
+        }
+        catch (Exception)
+        {
+            // 链接异常时不打扰用户,界面保持原状。
+        }
     }
 
     /// <summary>

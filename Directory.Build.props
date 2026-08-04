@@ -1,5 +1,9 @@
 <Project>
   <PropertyGroup>
+    <!-- 应用版本单一来源：与 airplay_core 的版本保持对齐，发布 Release 时按 v0.4.0 格式打标签。 -->
+    <Version>0.4.0</Version>
+  </PropertyGroup>
+  <PropertyGroup>
     <!-- 开发环境可使用本机 NuGet 缓存；源暂时不可达时不阻断本地构建和运行。 -->
     <RestoreIgnoreFailedSources>true</RestoreIgnoreFailedSources>
     <!-- 避免在离线开发时因漏洞元数据检查访问 NuGet。 -->
