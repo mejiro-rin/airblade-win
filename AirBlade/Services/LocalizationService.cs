@@ -72,6 +72,8 @@ public sealed class LocalizationService
         ["Settings.Appearance.ThemeFollowSystem"] = ("跟随系统", "System"),
         ["Settings.Appearance.ThemeDark"] = ("深色", "Dark"),
         ["Settings.Appearance.ThemeLight"] = ("浅色", "Light"),
+        ["Settings.Appearance.Acrylic"] = ("控制窗口亚克力", "Acrylic quick window"),
+        ["Settings.Appearance.AcrylicDescription"] = ("让快捷控制窗口使用亚克力模糊效果", "Use acrylic blur on the quick control window"),
         ["Settings.About.Title"] = ("关于", "About"),
         ["Settings.About.Copyright"] = ("版权", "Copyright"),
         ["Settings.About.CopyrightDescription"] = ("© 2026 AirBlade 贡献者，保留所有权利。（占位）", "© 2026 AirBlade contributors. All rights reserved. (placeholder)"),

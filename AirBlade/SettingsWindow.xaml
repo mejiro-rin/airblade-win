@@ -258,6 +258,14 @@
                                 </ComboBox>
                             </controls:SettingItemCard.ActionContent>
                         </controls:SettingItemCard>
+                        <controls:SettingItemCard
+                            x:Name="AcrylicCard"
+                            Header="控制窗口亚克力"
+                            Description="让快捷控制窗口使用亚克力模糊效果">
+                            <controls:SettingItemCard.ActionContent>
+                                <ToggleSwitch IsOn="{Binding QuickWindowAcrylic, Mode=TwoWay}" OnContent="开" OffContent="关" />
+                            </controls:SettingItemCard.ActionContent>
+                        </controls:SettingItemCard>
                     </StackPanel>
                 </ScrollViewer>
                 <Border

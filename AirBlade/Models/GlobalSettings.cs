@@ -36,4 +36,7 @@ public sealed record GlobalSettings
     public TimeSpan DiscoveryTimeout { get; init; } = TimeSpan.FromSeconds(2);
     public ThemeMode Theme { get; init; } = ThemeMode.FollowSystem;
     public AppLanguage Language { get; init; } = AppLanguage.Chinese;
+
+    /// <summary>控制窗口是否启用亚克力模糊效果。</summary>
+    public bool QuickWindowAcrylic { get; init; } = false;
 }

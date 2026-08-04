@@ -6,6 +6,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Windows.UI.ViewManagement;
 using WinRT.Interop;
 
 namespace AirBlade;
@@ -24,6 +26,8 @@ public sealed partial class MainWindow : Window
     private DeviceItemViewModel? _throttledVolumeDevice;
     private DeviceItemViewModel? _lastThrottledDevice;
     private double _lastThrottledValue;
+    private bool _acrylicEnabled;
+    private readonly UISettings _uiSettings = new();
 
     public MainWindow(DeviceManagerViewModel viewModel)
     {
@@ -34,6 +38,7 @@ public sealed partial class MainWindow : Window
         _volumeThrottleTimer.Tick += OnVolumeThrottleTick;
         _autoHideTimer.Tick += OnAutoHideTimerTick;
         _autoHideTimer.Start();
+        _uiSettings.ColorValuesChanged += OnSystemThemeChanged;
         Activated += OnActivated;
         Closed += OnClosed;
         // 首次显示前完成尺寸、位置和无边框配置，避免在激活回调里改布局干扰首帧合成。
@@ -43,6 +48,45 @@ public sealed partial class MainWindow : Window
 
     public DeviceManagerViewModel ViewModel { get; }
     public event EventHandler? MoreRequested;
+
+    /// <summary>
+    /// 切换控制窗口的亚克力效果：开启时根背景变透明以露出亚克力材质，关闭时按当前主题恢复纯色背景。
+    /// </summary>
+    public void ApplyAcrylic(bool enabled)
+    {
+        _acrylicEnabled = enabled;
+        SystemBackdrop = enabled ? new DesktopAcrylicBackdrop() : null;
+        RefreshWindowBackground();
+    }
+
+    /// <summary>
+    /// 按当前实际主题刷新窗口背景：亚克力开启时透明，关闭时从主题字典取 WindowBackgroundBrush。
+    /// 不能缓存旧画刷实例，否则主题切换后纯色背景会停留在旧主题颜色。
+    /// </summary>
+    public void RefreshWindowBackground()
+    {
+        if (_acrylicEnabled)
+        {
+            RootLayout.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+            return;
+        }
+        var theme = RootLayout.ActualTheme == ElementTheme.Dark ? "Dark" : "Light";
+        if (Application.Current.Resources.ThemeDictionaries.TryGetValue(theme, out var value)
+            && value is ResourceDictionary dictionary
+            && dictionary.TryGetValue("WindowBackgroundBrush", out var resource)
+            && resource is Brush background)
+        {
+            RootLayout.Background = background;
+        }
+    }
+
+    /// <summary>
+    /// 跟随系统主题模式下，系统深浅色切换时重新解析纯色背景。
+    /// </summary>
+    private void OnSystemThemeChanged(UISettings sender, object args)
+    {
+        _ = DispatcherQueue.TryEnqueue(() => RefreshWindowBackground());
+    }
 
     /// <summary>
     /// 按当前语言刷新快捷窗内的静态文本。
@@ -150,6 +194,7 @@ public sealed partial class MainWindow : Window
         _volumeThrottleTimer.Tick -= OnVolumeThrottleTick;
         _autoHideTimer.Stop();
         _autoHideTimer.Tick -= OnAutoHideTimerTick;
+        _uiSettings.ColorValuesChanged -= OnSystemThemeChanged;
     }
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)

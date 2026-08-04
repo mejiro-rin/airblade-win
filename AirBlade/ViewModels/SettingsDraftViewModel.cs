@@ -12,6 +12,7 @@ public sealed class SettingsDraftViewModel : ObservableObject
     private int _appearanceOption;
     private int _appearanceTheme;
     private int _language;
+    private bool _quickWindowAcrylic;
 
     public bool GeneralToggle { get => _generalToggle; set => SetProperty(ref _generalToggle, value); }
     public int GeneralOption { get => _generalOption; set => SetProperty(ref _generalOption, value); }
@@ -19,6 +20,7 @@ public sealed class SettingsDraftViewModel : ObservableObject
     public int AppearanceOption { get => _appearanceOption; set => SetProperty(ref _appearanceOption, value); }
     public int AppearanceTheme { get => _appearanceTheme; set => SetProperty(ref _appearanceTheme, value); }
     public int Language { get => _language; set => SetProperty(ref _language, value); }
+    public bool QuickWindowAcrylic { get => _quickWindowAcrylic; set => SetProperty(ref _quickWindowAcrylic, value); }
 
     /// <summary>
     /// 用另一份草稿覆盖当前值，用于应用与还原。
@@ -31,5 +33,6 @@ public sealed class SettingsDraftViewModel : ObservableObject
         AppearanceOption = source.AppearanceOption;
         AppearanceTheme = source.AppearanceTheme;
         Language = source.Language;
+        QuickWindowAcrylic = source.QuickWindowAcrylic;
     }
 }

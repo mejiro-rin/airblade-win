@@ -33,6 +33,7 @@ public sealed class DeviceSettingsServiceTests
         Assert.AreEqual(-15.12f, device.VolumeDb);
         Assert.IsFalse(global.StartupEnabled);
         Assert.AreEqual(TimeSpan.FromSeconds(2), global.DiscoveryTimeout);
+        Assert.IsFalse(global.QuickWindowAcrylic);
         Assert.IsFalse(File.Exists(SettingsPath));
     }
 
@@ -43,7 +44,7 @@ public sealed class DeviceSettingsServiceTests
         await using (var service = new DeviceSettingsService(SettingsPath))
         {
             await service.InitializeAsync();
-            await service.UpdateGlobalSettingsAsync(value => value with { StartupEnabled = true, LoggingEnabled = true, DefaultVolumeDb = -12, DiscoveryTimeout = TimeSpan.FromSeconds(8) });
+            await service.UpdateGlobalSettingsAsync(value => value with { StartupEnabled = true, LoggingEnabled = true, DefaultVolumeDb = -12, DiscoveryTimeout = TimeSpan.FromSeconds(8), QuickWindowAcrylic = true });
             await service.UpdateDeviceSettingsAsync("device-1", value => value with { AutoConnect = true, ConnectionPolicy = AirplayConnectionPolicy.Automatic, RememberVolume = false, VolumeDb = -6, Hidden = true, LastConnectedAt = connectedAt });
         }
         await using var restored = new DeviceSettingsService(SettingsPath);
@@ -54,6 +55,7 @@ public sealed class DeviceSettingsServiceTests
         Assert.IsTrue(global.LoggingEnabled);
         Assert.AreEqual(-12f, global.DefaultVolumeDb);
         Assert.AreEqual(TimeSpan.FromSeconds(8), global.DiscoveryTimeout);
+        Assert.IsTrue(global.QuickWindowAcrylic);
         Assert.IsTrue(device.AutoConnect);
         Assert.AreEqual(AirplayConnectionPolicy.Automatic, device.ConnectionPolicy);
         Assert.IsFalse(device.RememberVolume);

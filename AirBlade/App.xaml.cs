@@ -110,7 +110,11 @@ public partial class App : Application
     /// </summary>
     private void ApplyGlobalAppearance(GlobalSettings settings)
     {
-        if (_mainWindow is not null) ApplyWindowTheme(_mainWindow, settings.Theme);
+        if (_mainWindow is not null)
+        {
+            ApplyWindowTheme(_mainWindow, settings.Theme);
+            _mainWindow.ApplyAcrylic(settings.QuickWindowAcrylic);
+        }
         if (_settingsWindow is not null) ApplyWindowTheme(_settingsWindow, settings.Theme);
     }
 

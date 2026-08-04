@@ -43,6 +43,7 @@ public sealed partial class SettingsWindow : Window
             _ => 0,
         };
         _appliedSettings.Language = (int)global.Language;
+        _appliedSettings.QuickWindowAcrylic = global.QuickWindowAcrylic;
         Draft.CopyFrom(_appliedSettings);
         ApplyLocalization();
         ApplyTitleBarTheme(global.Theme);
@@ -167,6 +168,7 @@ public sealed partial class SettingsWindow : Window
                 _ => ThemeMode.FollowSystem,
             },
             Language = (AppLanguage)_appliedSettings.Language,
+            QuickWindowAcrylic = _appliedSettings.QuickWindowAcrylic,
         };
         try
         {
@@ -213,6 +215,8 @@ public sealed partial class SettingsWindow : Window
         AppearancePageTitle.Text = t["Settings.Appearance.Title"];
         ThemeCard.Header = t["Settings.Appearance.Theme"];
         ThemeCard.Description = t["Settings.Appearance.ThemeDescription"];
+        AcrylicCard.Header = t["Settings.Appearance.Acrylic"];
+        AcrylicCard.Description = t["Settings.Appearance.AcrylicDescription"];
         ThemeFollowSystemOption.Content = t["Settings.Appearance.ThemeFollowSystem"];
         ThemeDarkOption.Content = t["Settings.Appearance.ThemeDark"];
         ThemeLightOption.Content = t["Settings.Appearance.ThemeLight"];
