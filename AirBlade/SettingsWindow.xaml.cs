@@ -4,6 +4,7 @@ using AirBlade.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI.ViewManagement;
@@ -20,6 +21,10 @@ public sealed partial class SettingsWindow : Window
     private readonly DeviceSettingsService _settings;
     private readonly Action<GlobalSettings>? _appearanceApplied;
     private readonly UISettings _uiSettings = new();
+    private readonly DispatcherTimer _volumeThrottleTimer = new() { Interval = TimeSpan.FromMilliseconds(150) };
+    private DeviceItemViewModel? _throttledVolumeDevice;
+    private DeviceItemViewModel? _lastThrottledDevice;
+    private double _lastThrottledValue;
     private ThemeMode _currentTheme = ThemeMode.FollowSystem;
     private string _themeDictionary = "Dark";
     private bool _titleBarActive = true;
@@ -47,6 +52,7 @@ public sealed partial class SettingsWindow : Window
         AppWindow.Changed += OnAppWindowChanged;
         Activated += OnWindowActivated;
         _uiSettings.ColorValuesChanged += OnSystemThemeChanged;
+        _volumeThrottleTimer.Tick += OnVolumeThrottleTick;
         Closed += OnClosed;
         if (AppWindow.Presenter is OverlappedPresenter presenter)
             presenter.PreferredMinimumWidth = 1111;
@@ -61,11 +67,51 @@ public sealed partial class SettingsWindow : Window
     public SettingsDraftViewModel Draft { get; } = new();
 
     /// <summary>
-    /// 滑块松手即应用音量，与快捷窗行为一致。
+    /// 拖动中值变化时启动节流定时器，未松手也会按固定间隔把当前音量发送出去。
+    /// </summary>
+    private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs args)
+    {
+        if (sender is Slider { DataContext: DeviceItemViewModel device })
+        {
+            _throttledVolumeDevice = device;
+            if (!_volumeThrottleTimer.IsEnabled) _volumeThrottleTimer.Start();
+        }
+    }
+
+    /// <summary>
+    /// 拖动开始时挂起快照回写，避免发送过程中的状态刷新把滑块拉回旧值。
+    /// </summary>
+    private void VolumeSlider_PointerPressed(object sender, PointerRoutedEventArgs args)
+    {
+        if (sender is Slider { DataContext: DeviceItemViewModel device }) device.IsAdjustingVolume = true;
+    }
+
+    /// <summary>
+    /// 松手即应用最终音量，与快捷窗行为一致。
     /// </summary>
     private async void VolumeSlider_PointerCaptureLost(object sender, PointerRoutedEventArgs args)
     {
-        if (sender is Slider { DataContext: DeviceItemViewModel device }) await ViewModel.SetVolumeAsync(device);
+        if (sender is Slider { DataContext: DeviceItemViewModel device })
+        {
+            device.IsAdjustingVolume = false;
+            await ViewModel.SetVolumeAsync(device);
+        }
+    }
+
+    /// <summary>
+    /// 节流发送：拖动中每 150 毫秒发送一次当前值；值不再变化时停止定时器。
+    /// </summary>
+    private void OnVolumeThrottleTick(object? sender, object args)
+    {
+        var device = _throttledVolumeDevice;
+        if (device is null || (_lastThrottledDevice == device && _lastThrottledValue == device.EditableVolume))
+        {
+            _volumeThrottleTimer.Stop();
+            return;
+        }
+        _lastThrottledDevice = device;
+        _lastThrottledValue = device.EditableVolume;
+        _ = ViewModel.SetVolumeAsync(device);
     }
 
     /// <summary>
@@ -84,6 +130,25 @@ public sealed partial class SettingsWindow : Window
     {
         if (sender is FrameworkElement { DataContext: DeviceItemViewModel device })
             await ViewModel.ToggleHiddenCommand.ExecuteAsync(device);
+    }
+
+    /// <summary>
+    /// 设备卡片的自动连接开关：状态变更后立即持久化，与隐藏按钮行为一致。
+    /// 程序刷新快照导致开关回写时会自动跳过，避免重复保存。
+    /// </summary>
+    private async void AutoConnectToggle_Toggled(object sender, RoutedEventArgs args)
+    {
+        if (sender is not ToggleSwitch { DataContext: DeviceItemViewModel device } toggle) return;
+        if (device.AutoConnect == toggle.IsOn) return;
+        await ViewModel.SetAutoConnectAsync(device, toggle.IsOn);
+    }
+
+    /// <summary>
+    /// 忘记设备：断开连接并删除该设备的全部记忆配置。
+    /// </summary>
+    private async void ForgetDeviceButton_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is FrameworkElement { DataContext: DeviceItemViewModel device }) await ViewModel.RemoveDeviceAsync(device);
     }
 
     /// <summary>
@@ -191,6 +256,8 @@ public sealed partial class SettingsWindow : Window
     private void OnClosed(object sender, WindowEventArgs args)
     {
         _uiSettings.ColorValuesChanged -= OnSystemThemeChanged;
+        _volumeThrottleTimer.Stop();
+        _volumeThrottleTimer.Tick -= OnVolumeThrottleTick;
     }
 
     private void ApplyTitleBarThemeCore(ThemeMode theme)

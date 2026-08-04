@@ -30,7 +30,7 @@ public sealed class DeviceSettingsServiceTests
         Assert.IsFalse(device.AutoConnect);
         Assert.AreEqual(AirplayConnectionPolicy.Manual, device.ConnectionPolicy);
         Assert.IsTrue(device.RememberVolume);
-        Assert.AreEqual(-72f, device.VolumeDb);
+        Assert.AreEqual(-15.12f, device.VolumeDb);
         Assert.IsFalse(global.StartupEnabled);
         Assert.AreEqual(TimeSpan.FromSeconds(2), global.DiscoveryTimeout);
         Assert.IsFalse(File.Exists(SettingsPath));
@@ -60,6 +60,32 @@ public sealed class DeviceSettingsServiceTests
         Assert.AreEqual(-6f, device.VolumeDb);
         Assert.IsTrue(device.Hidden);
         Assert.AreEqual(connectedAt, device.LastConnectedAt);
+    }
+
+    [TestMethod]
+    public async Task 删除设备后失去全部记忆且重启不会恢复()
+    {
+        await using (var service = new DeviceSettingsService(SettingsPath))
+        {
+            await service.InitializeAsync();
+            await service.UpdateDeviceSettingsAsync("device-1", value => value with
+            {
+                DisplayName = "客厅",
+                Address = "192.168.1.10",
+                Port = 7000,
+                AutoConnect = true,
+                VolumeDb = -6,
+            });
+            await service.RemoveDeviceAsync("device-1");
+
+            var cleared = service.GetDeviceSettings("device-1");
+            Assert.IsNull(cleared.Address);
+            Assert.IsFalse(cleared.AutoConnect);
+            Assert.AreEqual(0, service.GetRememberedDevices().Count);
+        }
+        await using var restored = new DeviceSettingsService(SettingsPath);
+        await restored.InitializeAsync();
+        Assert.AreEqual(0, restored.GetRememberedDevices().Count);
     }
 
     [TestMethod]

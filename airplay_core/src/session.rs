@@ -84,9 +84,8 @@ impl Session {
         if !(-144.0..=0.0).contains(&db) {
             return Err(CoreError::InvalidArgument);
         }
-        if self.state != SessionState::Streaming {
-            return Err(CoreError::InvalidState("volume requires streaming"));
-        }
+        // 允许在流建立前预设置音量（连接时应用记忆音量）：真实发送由引擎
+        // 在进入播放循环后执行，命令队列会缓存到流可用为止。
         self.volume_db = db;
         Ok(())
     }

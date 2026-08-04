@@ -85,6 +85,19 @@ public sealed class DeviceSettingsService : IAsyncDisposable
             return _document.DeviceSettings.TryGetValue(deviceId, out var settings) ? settings : new DeviceSettings();
     }
 
+    /// <summary>
+    /// 返回已持久化设备信息（地址和端口）的设备，供启动时恢复记忆设备。
+    /// </summary>
+    public IReadOnlyList<(string DeviceId, DeviceSettings Settings)> GetRememberedDevices()
+    {
+        ThrowIfDisposed();
+        lock (_stateGate)
+            return _document.DeviceSettings
+                .Where(pair => !string.IsNullOrWhiteSpace(pair.Value.Address) && pair.Value.Port is > 0)
+                .Select(pair => (pair.Key, pair.Value))
+                .ToArray();
+    }
+
     public async Task UpdateDeviceSettingsAsync(string deviceId, Func<DeviceSettings, DeviceSettings> update, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
@@ -100,6 +113,22 @@ public sealed class DeviceSettingsService : IAsyncDisposable
                 ValidateDeviceSettings(updated);
                 _document.DeviceSettings[deviceId] = updated;
             }
+            await SaveCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>
+    /// 删除某台设备的全部记忆配置，忘记设备后重启也不会再恢复。
+    /// </summary>
+    public async Task RemoveDeviceAsync(string deviceId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
+        ThrowIfDisposed();
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (_stateGate) _document.DeviceSettings.Remove(deviceId);
             await SaveCoreAsync(cancellationToken).ConfigureAwait(false);
         }
         finally { _gate.Release(); }
@@ -140,6 +169,9 @@ public sealed class DeviceSettingsService : IAsyncDisposable
             if (!_devices.TryGetValue(discovered.DeviceId, out var device))
             {
                 device = new AirplayDevice(discovered.DeviceId, discovered.DisplayName, discovered.Address, discovered.Port);
+                // 设备已有记忆配置时，渲染即显示记忆音量，不必等连接成功。
+                if (_document.DeviceSettings.TryGetValue(discovered.DeviceId, out var settings) && settings.RememberVolume)
+                    device.VolumeDb = settings.VolumeDb;
                 _devices.Add(discovered.DeviceId, device);
             }
             device.UpdateDiscovery(discovered.DisplayName, discovered.Address, discovered.Port);

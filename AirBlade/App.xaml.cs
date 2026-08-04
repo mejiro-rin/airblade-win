@@ -55,6 +55,8 @@ public partial class App : Application
             await manager.InitializeAsync();
             await viewModel.DiscoverAsync();
             window.StartAutoRefresh();
+            // 首次发现完成后，自动连接配置了自动连接的设备。
+            await manager.AutoConnectAsync();
         }
         catch (Exception exception)
         {

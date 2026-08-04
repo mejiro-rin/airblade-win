@@ -14,6 +14,8 @@ public sealed class DeviceManagerViewModel : ObservableObject, IDisposable
     private readonly AirplayDeviceManager _manager;
     private readonly bool _includeHidden;
     private readonly SynchronizationContext? _synchronizationContext;
+    private readonly object _operationChainGate = new();
+    private Task _pendingOperation = Task.CompletedTask;
     private bool _isBusy;
     private string? _errorMessage;
     private int _disposed;
@@ -69,7 +71,24 @@ public sealed class DeviceManagerViewModel : ObservableObject, IDisposable
         if (StringComparer.Ordinal.Equals(device.DeviceId, _manager.CurrentConnectedDeviceId)) await _manager.DisconnectAsync(device.DeviceId);
         else await _manager.ConnectAsync(device.DeviceId);
     });
-    public async Task SetVolumeAsync(object? parameter) => await ExecuteOperationAsync(AsDevice(parameter), device => _manager.SetVolumeAsync(device.DeviceId, DeviceItemViewModel.ToVolumeDb(device.EditableVolume)));
+    public async Task SetVolumeAsync(object? parameter)
+    {
+        var device = AsDevice(parameter);
+        if (device is null) return;
+        // 调用时立即捕获滑块值，避免排队等待期间快照刷新覆盖滑块后读不到用户的最新选择。
+        var volumeDb = DeviceItemViewModel.ToVolumeDb(device.EditableVolume);
+        await ExecuteOperationAsync(device, () => _manager.SetVolumeAsync(device.DeviceId, volumeDb));
+    }
+    public async Task SetAutoConnectAsync(DeviceItemViewModel device, bool autoConnect)
+    {
+        if (device is null) return;
+        await ExecuteOperationAsync(device, () => _manager.SetAutoConnectAsync(device.DeviceId, autoConnect));
+    }
+    public async Task RemoveDeviceAsync(DeviceItemViewModel device)
+    {
+        if (device is null) return;
+        await ExecuteOperationAsync(device, () => _manager.RemoveDeviceAsync(device.DeviceId));
+    }
     public async Task ToggleHiddenAsync(object? parameter) => await ExecuteOperationAsync(AsDevice(parameter), device => _manager.SetDeviceHiddenAsync(device.DeviceId, !device.IsHidden));
 
     public void RefreshDevices()
@@ -77,7 +96,10 @@ public sealed class DeviceManagerViewModel : ObservableObject, IDisposable
         if (Volatile.Read(ref _disposed) != 0) return;
         var existing = Devices.ToDictionary(item => item.DeviceId, StringComparer.Ordinal);
         var snapshots = _manager.GetDevices(includeHidden: true)
-            .Where(snapshot => _includeHidden || (snapshot.IsDiscovered && !snapshot.IsHidden))
+            .Where(snapshot => _includeHidden ||
+                (!snapshot.IsHidden &&
+                 (snapshot.IsDiscovered ||
+                  snapshot.ConnectionState is AirplaySessionState.Pairing or AirplaySessionState.Connecting or AirplaySessionState.Streaming)))
             .OrderBy(snapshot => snapshot.DisplayName, StringComparer.CurrentCulture)
             .ThenBy(snapshot => snapshot.DeviceId, StringComparer.Ordinal)
             .ToArray();
@@ -110,7 +132,36 @@ public sealed class DeviceManagerViewModel : ObservableObject, IDisposable
 
     private async Task ExecuteOperationAsync(DeviceItemViewModel? device, Func<Task> action)
     {
-        if (IsBusy) return;
+        var operation = QueueOperationAsync(device, action);
+        await operation;
+    }
+
+    private Task QueueOperationAsync(DeviceItemViewModel? device, Func<Task> action)
+    {
+        lock (_operationChainGate)
+        {
+            var predecessor = _pendingOperation;
+            var operation = RunOperationAsync(device, action, predecessor);
+            _pendingOperation = operation;
+            return operation;
+        }
+    }
+
+    private Task ExecuteOperationAsync(DeviceItemViewModel? device, Func<DeviceItemViewModel, Task> action)
+    {
+        if (device is null) return Task.CompletedTask;
+        return ExecuteOperationAsync(device, () => action(device));
+    }
+
+    /// <summary>
+    /// 串行执行界面操作：等待前一个操作结束后再开始本次操作。
+    /// 之前直接在忙碌时丢弃请求，导致滑块在发现扫描期间调音量没反应，
+    /// 扫描结束刷新快照时又把滑块回弹到旧值。
+    /// </summary>
+    private async Task RunOperationAsync(DeviceItemViewModel? device, Func<Task> action, Task predecessor)
+    {
+        try { await predecessor; }
+        catch { /* 前置操作已自行处理异常，本次操作继续执行 */ }
         IsBusy = true;
         ErrorMessage = null;
         device?.ClearOperationError();
@@ -126,12 +177,6 @@ public sealed class DeviceManagerViewModel : ObservableObject, IDisposable
             RefreshCommands();
         }
         finally { IsBusy = false; }
-    }
-
-    private Task ExecuteOperationAsync(DeviceItemViewModel? device, Func<DeviceItemViewModel, Task> action)
-    {
-        if (device is null) return Task.CompletedTask;
-        return ExecuteOperationAsync(device, () => action(device));
     }
 
     private bool CanConnect(object? parameter)

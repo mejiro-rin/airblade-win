@@ -133,6 +133,7 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
                                     <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
                                     <TextBlock Grid.Column="1" Text="{Binding Endpoint}" />
@@ -147,6 +148,8 @@
                                         IsEnabled="{Binding CanAdjustVolume}"
                                         Value="{Binding EditableVolume, Mode=TwoWay}"
                                         VerticalAlignment="Center"
+                                        ValueChanged="VolumeSlider_ValueChanged"
+                                        PointerPressed="VolumeSlider_PointerPressed"
                                         PointerCaptureLost="VolumeSlider_PointerCaptureLost" />
                                     <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <Button Click="ToggleConnectionButton_Click" AutomationProperties.Name="{Binding ConnectionActionText}">
@@ -156,8 +159,22 @@
                                             </StackPanel>
                                         </Button>
                                         <Button Content="{Binding HiddenActionText}" Click="ToggleHiddenButton_Click" />
+                                        <Button Content="{Binding ForgetActionText}" Click="ForgetDeviceButton_Click" />
                                     </StackPanel>
-                                    <TextBlock Grid.Row="3" Grid.ColumnSpan="2" Text="{Binding ErrorMessage}" Foreground="IndianRed" TextWrapping="WrapWholeWords" />
+                                    <Grid Grid.Row="3" Grid.ColumnSpan="2" ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding AutoConnectLabel}" VerticalAlignment="Center" />
+                                        <ToggleSwitch
+                                            Grid.Column="1"
+                                            IsOn="{Binding AutoConnect}"
+                                            Toggled="AutoConnectToggle_Toggled"
+                                            OnContent="开"
+                                            OffContent="关" />
+                                    </Grid>
+                                    <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="{Binding ErrorMessage}" Foreground="IndianRed" TextWrapping="WrapWholeWords" />
                                 </Grid>
                             </Border>
                         </DataTemplate>

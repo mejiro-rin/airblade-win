@@ -32,7 +32,7 @@ public sealed record GlobalSettings
     public bool StartupEnabled { get; init; } = false;
     public bool LoggingEnabled { get; init; } = false;
     public AirplayConnectionPolicy DefaultConnectionPolicy { get; init; } = AirplayConnectionPolicy.Manual;
-    public float DefaultVolumeDb { get; init; } = -72;
+    public float DefaultVolumeDb { get; init; } = -15.12f;
     public TimeSpan DiscoveryTimeout { get; init; } = TimeSpan.FromSeconds(2);
     public ThemeMode Theme { get; init; } = ThemeMode.FollowSystem;
     public AppLanguage Language { get; init; } = AppLanguage.Chinese;

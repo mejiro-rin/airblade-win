@@ -4,6 +4,7 @@ using AirBlade.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using WinRT.Interop;
 
@@ -15,9 +16,14 @@ namespace AirBlade;
 public sealed partial class MainWindow : Window
 {
     private readonly DispatcherTimer _autoRefreshTimer;
+    private readonly DispatcherTimer _autoHideTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private DateTime _lastShownAtUtc = DateTime.MinValue;
     private bool _positioned;
-    private bool _autoHideEnabled;
+    private bool _isActive;
+    private readonly DispatcherTimer _volumeThrottleTimer = new() { Interval = TimeSpan.FromMilliseconds(150) };
+    private DeviceItemViewModel? _throttledVolumeDevice;
+    private DeviceItemViewModel? _lastThrottledDevice;
+    private double _lastThrottledValue;
 
     public MainWindow(DeviceManagerViewModel viewModel)
     {
@@ -25,6 +31,9 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         _autoRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
         _autoRefreshTimer.Tick += OnAutoRefreshTimerTick;
+        _volumeThrottleTimer.Tick += OnVolumeThrottleTick;
+        _autoHideTimer.Tick += OnAutoHideTimerTick;
+        _autoHideTimer.Start();
         Activated += OnActivated;
         Closed += OnClosed;
         // 首次显示前完成尺寸、位置和无边框配置，避免在激活回调里改布局干扰首帧合成。
@@ -41,6 +50,7 @@ public sealed partial class MainWindow : Window
     public void ApplyLocalization()
     {
         ToolTipService.SetToolTip(MoreButton, LocalizationService.Current["MainWindow.MoreToolTip"]);
+        ToolTipService.SetToolTip(MinimizeButton, LocalizationService.Current["MainWindow.MinimizeToolTip"]);
     }
 
     /// <summary>
@@ -49,6 +59,11 @@ public sealed partial class MainWindow : Window
     public void StartAutoRefresh() => _autoRefreshTimer.Start();
 
     private void MoreButton_Click(object sender, RoutedEventArgs args) => MoreRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>
+    /// 手动最小化到托盘，不依赖失焦自动隐藏判定。
+    /// </summary>
+    private void MinimizeButton_Click(object sender, RoutedEventArgs args) => HideToTray();
 
     /// <summary>
     /// 隐藏快捷窗，但保留系统托盘入口。
@@ -71,9 +86,49 @@ public sealed partial class MainWindow : Window
 
     private const int SwShow = 5;
 
+    /// <summary>
+    /// 拖动中值变化时启动节流定时器，未松手也会按固定间隔把当前音量发送出去。
+    /// </summary>
+    private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs args)
+    {
+        if (sender is Slider { DataContext: DeviceItemViewModel device })
+        {
+            _throttledVolumeDevice = device;
+            if (!_volumeThrottleTimer.IsEnabled) _volumeThrottleTimer.Start();
+        }
+    }
+
+    /// <summary>
+    /// 拖动开始时挂起快照回写，避免发送过程中的状态刷新把滑块拉回旧值。
+    /// </summary>
+    private void VolumeSlider_PointerPressed(object sender, PointerRoutedEventArgs args)
+    {
+        if (sender is Slider { DataContext: DeviceItemViewModel device }) device.IsAdjustingVolume = true;
+    }
+
     private async void VolumeSlider_PointerCaptureLost(object sender, PointerRoutedEventArgs args)
     {
-        if (sender is Slider { DataContext: DeviceItemViewModel device }) await ViewModel.SetVolumeAsync(device);
+        if (sender is Slider { DataContext: DeviceItemViewModel device })
+        {
+            device.IsAdjustingVolume = false;
+            await ViewModel.SetVolumeAsync(device);
+        }
+    }
+
+    /// <summary>
+    /// 节流发送：拖动中每 150 毫秒发送一次当前值；值不再变化时停止定时器。
+    /// </summary>
+    private void OnVolumeThrottleTick(object? sender, object args)
+    {
+        var device = _throttledVolumeDevice;
+        if (device is null || (_lastThrottledDevice == device && _lastThrottledValue == device.EditableVolume))
+        {
+            _volumeThrottleTimer.Stop();
+            return;
+        }
+        _lastThrottledDevice = device;
+        _lastThrottledValue = device.EditableVolume;
+        _ = ViewModel.SetVolumeAsync(device);
     }
 
     /// <summary>
@@ -87,24 +142,37 @@ public sealed partial class MainWindow : Window
 
     private async void OnAutoRefreshTimerTick(object? sender, object args) => await ViewModel.DiscoverAsync();
 
-    private void RootGrid_PointerPressed(object sender, PointerRoutedEventArgs args) => _autoHideEnabled = true;
-
     private void OnClosed(object sender, WindowEventArgs args)
     {
         _autoRefreshTimer.Stop();
         _autoRefreshTimer.Tick -= OnAutoRefreshTimerTick;
+        _volumeThrottleTimer.Stop();
+        _volumeThrottleTimer.Tick -= OnVolumeThrottleTick;
+        _autoHideTimer.Stop();
+        _autoHideTimer.Tick -= OnAutoHideTimerTick;
     }
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
+        _isActive = args.WindowActivationState != WindowActivationState.Deactivated;
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
             // 窗口刚被托盘唤起时可能先收到一次失焦事件（激活竞争失败），
             // 短暂时间内不自动隐藏，避免“刚显示就消失”的竞态。
-            if (_autoHideEnabled && (DateTime.UtcNow - _lastShownAtUtc).TotalMilliseconds > 1500) HideToTray();
+            if ((DateTime.UtcNow - _lastShownAtUtc).TotalMilliseconds > 1500) HideToTray();
             return;
         }
         ConfigureWindowPlacement();
+    }
+
+    /// <summary>
+    /// 失焦自动隐藏的兜底：个别全屏应用切换时 Deactivated 事件可能不触发，
+    /// 定期检查窗口可见但未激活的情况，超过防抖时间后隐藏到托盘。
+    /// </summary>
+    private void OnAutoHideTimerTick(object? sender, object args)
+    {
+        if (!_isActive && AppWindow.IsVisible && (DateTime.UtcNow - _lastShownAtUtc).TotalMilliseconds > 1500)
+            HideToTray();
     }
 
     /// <summary>
@@ -122,8 +190,8 @@ public sealed partial class MainWindow : Window
             presenter.IsMinimizable = false;
             presenter.SetBorderAndTitleBar(true, false);
         }
-        // 固定窗口尺寸；高度比旧值下调几个像素，让窗口整体更贴近任务栏。
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(540, 585));
+        // 固定窗口尺寸；高度按需求缩减为原来的三分之一，窗口整体更紧凑。
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(540, 400));
         var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var size = AppWindow.Size;
         // 底部保留 8 像素空隙，靠近任务栏但不直接接触。

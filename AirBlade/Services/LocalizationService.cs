@@ -19,6 +19,7 @@ public sealed class LocalizationService
 
         // 快捷窗
         ["MainWindow.MoreToolTip"] = ("更多设置", "More settings"),
+        ["MainWindow.MinimizeToolTip"] = ("最小化", "Minimize"),
         ["Device.EmptyState"] = ("未搜索到设备", "No devices found"),
 
         // 设备状态与操作
@@ -37,6 +38,8 @@ public sealed class LocalizationService
         ["Device.PlayHere"] = ("播放到此设备", "Play to this device"),
         ["Device.Connect"] = ("连接", "Connect"),
         ["Device.Disconnect"] = ("断开", "Disconnect"),
+        ["Device.AutoConnect"] = ("自动连接", "Auto connect"),
+        ["Device.Forget"] = ("忘记设备", "Forget device"),
 
         // 设置窗口
         ["Settings.Title"] = ("AirBlade 设置", "AirBlade Settings"),

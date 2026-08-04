@@ -141,7 +141,10 @@ public sealed class AirplaySessionService : IAsyncDisposable
         {
             case AirplayEventKind.State:
                 if (Volatile.Read(ref _disconnectRequested) != 0 && airplayEvent.State is AirplaySessionState.Pairing or AirplaySessionState.Connecting or AirplaySessionState.Streaming) return;
-                PublishState(new(airplayEvent.State, GetSnapshot().VolumeDb, GetSnapshot().LastError));
+                // 会话重新进入活跃状态说明已恢复正常，清除此前残留的错误，
+                // 避免连接成功后旧错误一直显示在设备卡片上。
+                var isActive = airplayEvent.State is AirplaySessionState.Pairing or AirplaySessionState.Connecting or AirplaySessionState.Streaming;
+                PublishState(new(airplayEvent.State, GetSnapshot().VolumeDb, isActive ? null : GetSnapshot().LastError));
                 break;
             case AirplayEventKind.Volume:
                 lock (_stateGate) _snapshot = _snapshot with { VolumeDb = airplayEvent.VolumeDb };
