@@ -6,18 +6,12 @@ namespace AirBlade.ViewModels;
 /// </summary>
 public sealed class SettingsDraftViewModel : ObservableObject
 {
-    private bool _generalToggle;
-    private int _generalOption;
-    private bool _appearanceToggle;
-    private int _appearanceOption;
+    private bool _startupEnabled;
     private int _appearanceTheme;
     private int _language;
     private bool _quickWindowAcrylic;
 
-    public bool GeneralToggle { get => _generalToggle; set => SetProperty(ref _generalToggle, value); }
-    public int GeneralOption { get => _generalOption; set => SetProperty(ref _generalOption, value); }
-    public bool AppearanceToggle { get => _appearanceToggle; set => SetProperty(ref _appearanceToggle, value); }
-    public int AppearanceOption { get => _appearanceOption; set => SetProperty(ref _appearanceOption, value); }
+    public bool StartupEnabled { get => _startupEnabled; set => SetProperty(ref _startupEnabled, value); }
     public int AppearanceTheme { get => _appearanceTheme; set => SetProperty(ref _appearanceTheme, value); }
     public int Language { get => _language; set => SetProperty(ref _language, value); }
     public bool QuickWindowAcrylic { get => _quickWindowAcrylic; set => SetProperty(ref _quickWindowAcrylic, value); }
@@ -27,10 +21,7 @@ public sealed class SettingsDraftViewModel : ObservableObject
     /// </summary>
     public void CopyFrom(SettingsDraftViewModel source)
     {
-        GeneralToggle = source.GeneralToggle;
-        GeneralOption = source.GeneralOption;
-        AppearanceToggle = source.AppearanceToggle;
-        AppearanceOption = source.AppearanceOption;
+        StartupEnabled = source.StartupEnabled;
         AppearanceTheme = source.AppearanceTheme;
         Language = source.Language;
         QuickWindowAcrylic = source.QuickWindowAcrylic;

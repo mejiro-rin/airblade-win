@@ -1,6 +1,7 @@
 using AirBlade.Models;
 using AirBlade.Services;
 using AirBlade.ViewModels;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -28,6 +29,8 @@ public sealed partial class SettingsWindow : Window
     private ThemeMode _currentTheme = ThemeMode.FollowSystem;
     private string _themeDictionary = "Dark";
     private bool _titleBarActive = true;
+    private bool _closed;
+    private FrameworkElement? _titleBarRoot;
 
     public SettingsWindow(DeviceManagerViewModel viewModel, DeviceSettingsService settings, Action<GlobalSettings>? appearanceApplied = null)
     {
@@ -44,10 +47,13 @@ public sealed partial class SettingsWindow : Window
         };
         _appliedSettings.Language = (int)global.Language;
         _appliedSettings.QuickWindowAcrylic = global.QuickWindowAcrylic;
+        _appliedSettings.StartupEnabled = global.StartupEnabled;
         Draft.CopyFrom(_appliedSettings);
         ApplyLocalization();
+        // 缓存根元素：窗口销毁后访问 Window.Content 会抛 COMException，不能延迟到那时再取。
+        _titleBarRoot = Content as FrameworkElement;
+        if (_titleBarRoot is not null) _titleBarRoot.ActualThemeChanged += OnActualThemeChanged;
         ApplyTitleBarTheme(global.Theme);
-        if (Content is FrameworkElement root) root.ActualThemeChanged += OnActualThemeChanged;
         var titleBar = AppWindow.TitleBar;
         titleBar.ExtendsContentIntoTitleBar = true;
         UpdateNativeCaptionButtonColors();
@@ -195,10 +201,12 @@ public sealed partial class SettingsWindow : Window
             },
             Language = (AppLanguage)_appliedSettings.Language,
             QuickWindowAcrylic = _appliedSettings.QuickWindowAcrylic,
+            StartupEnabled = _appliedSettings.StartupEnabled,
         };
         try
         {
             await _settings.UpdateGlobalSettingsAsync(_ => updated);
+            StartupService.Apply(updated.StartupEnabled);
             _appearanceApplied?.Invoke(updated);
         }
         catch (Exception)
@@ -224,15 +232,8 @@ public sealed partial class SettingsWindow : Window
         GeneralPageTitle.Text = t["Settings.General.Title"];
         LanguageCard.Header = t["Settings.General.Language"];
         LanguageCard.Description = t["Settings.General.LanguageDescription"];
-        TogglePlaceholderCard.Header = t["Settings.General.TogglePlaceholder"];
-        TogglePlaceholderCard.Description = t["Settings.General.TogglePlaceholderDescription"];
-        TogglePlaceholderSwitch.OnContent = t["Settings.General.ToggleOn"];
-        TogglePlaceholderSwitch.OffContent = t["Settings.General.ToggleOff"];
-        OptionPlaceholderCard.Header = t["Settings.General.OptionPlaceholder"];
-        OptionPlaceholderCard.Description = t["Settings.General.OptionPlaceholderDescription"];
-        OptionPlaceholder1.Content = t["Settings.General.Option1"];
-        OptionPlaceholder2.Content = t["Settings.General.Option2"];
-        OptionPlaceholder3.Content = t["Settings.General.Option3"];
+        StartupCard.Header = t["Settings.General.StartupEnabled"];
+        StartupCard.Description = t["Settings.General.StartupEnabledDescription"];
         GeneralSaveButton.Content = t["Settings.Save"];
         AppearanceSaveButton.Content = t["Settings.Save"];
         AppearancePageTitle.Text = t["Settings.Appearance.Title"];
@@ -259,16 +260,24 @@ public sealed partial class SettingsWindow : Window
         ApplyTitleBarThemeCore(theme);
         // 窗口首次布局前 ActualTheme 尚未确定，延迟一帧后按实际主题再刷新一次，
         // 避免初始按默认主题计算导致按钮图标颜色错误。
-        _ = DispatcherQueue.TryEnqueue(() => ApplyTitleBarThemeCore(_currentTheme));
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_closed) ApplyTitleBarThemeCore(_currentTheme);
+        });
     }
 
     /// <summary>
     /// 窗口实际主题变化（跟随系统切换或固定主题切换）时，重新计算标题栏配色。
     /// </summary>
-    private void OnActualThemeChanged(FrameworkElement sender, object args) => ApplyTitleBarThemeCore(_currentTheme);
+    private void OnActualThemeChanged(FrameworkElement sender, object args)
+    {
+        if (_closed) return;
+        ApplyTitleBarThemeCore(_currentTheme);
+    }
 
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
     {
+        if (_closed) return;
         _titleBarActive = args.WindowActivationState != WindowActivationState.Deactivated;
         // 窗口真正激活时 ActualTheme 才稳定，此时必须重新计算主题字典，
         // 不能复用构造函数里在布局完成前算出的旧值，否则深浅色按钮颜色会锁定错误主题。
@@ -277,6 +286,7 @@ public sealed partial class SettingsWindow : Window
 
     private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
+        if (_closed) return;
         if (args.DidSizeChange) UpdateTitleBarDragRectangles(AppWindow.TitleBar);
     }
 
@@ -285,13 +295,19 @@ public sealed partial class SettingsWindow : Window
     /// </summary>
     private void OnSystemThemeChanged(UISettings sender, object args)
     {
-        _ = DispatcherQueue.TryEnqueue(() => ApplyTitleBarThemeCore(_currentTheme));
+        if (_closed) return;
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_closed) ApplyTitleBarThemeCore(_currentTheme);
+        });
     }
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
+        _closed = true;
+        Activated -= OnWindowActivated;
         _uiSettings.ColorValuesChanged -= OnSystemThemeChanged;
-        if (Content is FrameworkElement root) root.ActualThemeChanged -= OnActualThemeChanged;
+        if (_titleBarRoot is not null) _titleBarRoot.ActualThemeChanged -= OnActualThemeChanged;
         _volumeThrottleTimer.Stop();
         _volumeThrottleTimer.Tick -= OnVolumeThrottleTick;
     }
@@ -299,9 +315,17 @@ public sealed partial class SettingsWindow : Window
     private void ApplyTitleBarThemeCore(ThemeMode theme)
     {
         _currentTheme = theme;
-        // 以窗口实际渲染主题为准，与 XAML 中 ThemeResource 的解析结果保持一致，
-        // 避免“用户设置”与“实际主题”不一致导致按钮前景色停留在错误主题。
-        _themeDictionary = Content is FrameworkElement root && root.ActualTheme == ElementTheme.Dark ? "Dark" : "Light";
+        try
+        {
+            // 以窗口实际渲染主题为准，与 XAML 中 ThemeResource 的解析结果保持一致，
+            // 避免“用户设置”与“实际主题”不一致导致按钮前景色停留在错误主题。
+            _themeDictionary = _titleBarRoot is { ActualTheme: ElementTheme.Dark } ? "Dark" : "Light";
+        }
+        catch (COMException)
+        {
+            // 窗口销毁期间访问根元素可能抛 COMException，直接返回，避免关闭时再报错。
+            return;
+        }
         UpdateTitleBarState(_titleBarActive);
     }
 

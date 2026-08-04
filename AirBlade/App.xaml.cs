@@ -40,6 +40,9 @@ public partial class App : Application
         var global = _settings.GetGlobalSettings();
         LocalizationService.Current.SetLanguage(global.Language);
         ApplyGlobalAppearance(global);
+        // 启动时把配置里的自启开关同步到注册表，避免用户手动改过系统启动项后两边不一致。
+        try { StartupService.Apply(global.StartupEnabled); }
+        catch { /* 自启注册失败不影响应用启动。 */ }
         SetApplicationIcon(_mainWindow);
         _mainWindow.MoreRequested += OnMoreRequested;
         _mainWindow.Closed += OnMainWindowClosed;
