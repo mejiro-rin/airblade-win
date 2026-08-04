@@ -8,9 +8,51 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
-                <!-- Other merged dictionaries here -->
             </ResourceDictionary.MergedDictionaries>
-            <!-- Other app resources here -->
+            <!--
+              主题配色记录：
+              - Dark 为当前正式实现的暗色模式配色；
+              - Light 为浅色模式配色（快捷窗与设置窗共用），后续可继续精调，
+                无需再改窗口或卡片 XAML（当前设置窗口强制 RequestedTheme="Dark"）。
+            -->
+            <ResourceDictionary.ThemeDictionaries>
+                <!-- 浅色模式配色 -->
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AirBladeCardBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AirBladeCardStrokeBrush" Color="#E0E0E0" />
+                    <SolidColorBrush x:Key="SettingsBackgroundBrush" Color="#F5F5F5" />
+                    <SolidColorBrush x:Key="SettingsCardBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="SettingsCardStrokeBrush" Color="#D9D9D9" />
+                    <SolidColorBrush x:Key="SettingsTitleBarBackgroundBrush" Color="#F5F5F5" />
+                    <SolidColorBrush x:Key="SettingsTitleBarInactiveBackgroundBrush" Color="#E8E8E8" />
+                    <SolidColorBrush x:Key="SettingsTitleBarHoverBrush" Color="#E8E8E8" />
+                    <SolidColorBrush x:Key="SettingsTitleBarPressedBrush" Color="#DCDCDC" />
+                    <SolidColorBrush x:Key="SettingsTitleBarForegroundBrush" Color="#1A1A1A" />
+                    <SolidColorBrush x:Key="SettingsTitleBarInactiveForegroundBrush" Color="#6B6B6B" />
+                    <SolidColorBrush x:Key="NavigationViewPaneBackground" Color="#F5F5F5" />
+                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="#F5F5F5" />
+                    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#F5F5F5" />
+                </ResourceDictionary>
+                <!-- 暗色模式正式配色 -->
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#202020" />
+                    <SolidColorBrush x:Key="AirBladeCardBackgroundBrush" Color="#2E2E2E" />
+                    <SolidColorBrush x:Key="AirBladeCardStrokeBrush" Color="#444444" />
+                    <SolidColorBrush x:Key="SettingsBackgroundBrush" Color="#282828" />
+                    <SolidColorBrush x:Key="SettingsCardBackgroundBrush" Color="#333333" />
+                    <SolidColorBrush x:Key="SettingsCardStrokeBrush" Color="#333333" />
+                    <SolidColorBrush x:Key="SettingsTitleBarBackgroundBrush" Color="#282828" />
+                    <SolidColorBrush x:Key="SettingsTitleBarInactiveBackgroundBrush" Color="#202020" />
+                    <SolidColorBrush x:Key="SettingsTitleBarHoverBrush" Color="#404040" />
+                    <SolidColorBrush x:Key="SettingsTitleBarPressedBrush" Color="#545454" />
+                    <SolidColorBrush x:Key="SettingsTitleBarForegroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="SettingsTitleBarInactiveForegroundBrush" Color="#8A8A8A" />
+                    <SolidColorBrush x:Key="NavigationViewPaneBackground" Color="#282828" />
+                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="#282828" />
+                    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#282828" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

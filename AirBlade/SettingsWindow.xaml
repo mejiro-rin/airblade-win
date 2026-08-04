@@ -1,0 +1,282 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="AirBlade.SettingsWindow"
+    x:Name="Root"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:AirBlade.Controls"
+    xmlns:converters="using:AirBlade.Converters"
+    Title="AirBlade 设置">
+
+    <Grid>
+        <Grid.Resources>
+            <converters:BoolToOnOffTextConverter x:Key="BoolToOnOffTextConverter" />
+        </Grid.Resources>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="32" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 自绘标题栏：聚焦/失焦颜色完全由应用按主题控制。 -->
+        <Grid x:Name="TitleBarArea" Grid.Row="0" Background="{ThemeResource SettingsTitleBarBackgroundBrush}">
+            <TextBlock x:Name="TitleBarTitle" Text="AirBlade 设置" VerticalAlignment="Center" Margin="16,0" FontSize="12" Foreground="{ThemeResource SettingsTitleBarForegroundBrush}" />
+        </Grid>
+
+        <!-- 与 Windows 设置同款的左侧导航：选中项自动显示灰色背景。 -->
+        <NavigationView
+            Grid.Row="1"
+            x:Name="SettingsNav"
+            PaneDisplayMode="Left"
+            OpenPaneLength="320"
+            IsBackButtonVisible="Collapsed"
+            IsPaneToggleButtonVisible="False"
+            IsSettingsVisible="False"
+            Background="{ThemeResource SettingsBackgroundBrush}"
+            SelectionChanged="SettingsNav_SelectionChanged">
+
+        <NavigationView.MenuItems>
+            <NavigationViewItem x:Name="NavDevices" Content="设备" Tag="Devices">
+                <NavigationViewItem.Icon>
+                    <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE772;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="NavGeneral" Content="通用" Tag="General">
+                <NavigationViewItem.Icon>
+                    <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE713;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="NavAppearance" Content="外观" Tag="Appearance">
+                <NavigationViewItem.Icon>
+                    <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE790;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="NavAbout" Content="关于" Tag="About">
+                <NavigationViewItem.Icon>
+                    <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE946;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+        </NavigationView.MenuItems>
+
+        <Grid DataContext="{Binding ViewModel, ElementName=Root}">
+            <!-- 设备页：显示全部设备，包括隐藏的。 -->
+            <Grid x:Name="DevicesPage" Padding="24,16" RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel Spacing="8">
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="DevicesPageTitle" Text="AirPlay 设备" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" VerticalAlignment="Center" />
+                        <Button x:Name="DiscoverButton" Grid.Column="1" Command="{Binding DiscoverCommand}" ToolTipService.ToolTip="手动发现" Background="Transparent" BorderThickness="0" Padding="10,6">
+                            <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE72C;" FontSize="16" />
+                        </Button>
+                    </Grid>
+                    <TextBlock Text="{Binding ErrorMessage}" Foreground="IndianRed" TextWrapping="WrapWholeWords" Visibility="{Binding ErrorVisibility}" />
+                </StackPanel>
+                <ListView Grid.Row="1" ItemsSource="{Binding Devices}" SelectionMode="None">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Border Padding="16,12" Margin="0,0,0,8" Background="{ThemeResource SettingsCardBackgroundBrush}" BorderBrush="{ThemeResource SettingsCardStrokeBrush}" BorderThickness="1" CornerRadius="6">
+                                <Grid RowSpacing="8" ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Endpoint}" />
+                                    <TextBlock Grid.Row="1" Text="{Binding DiscoveryStatusText}" />
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ConnectionStatusText}" />
+                                    <Slider
+                                        Grid.Row="2"
+                                        Minimum="0"
+                                        Maximum="100"
+                                        StepFrequency="1"
+                                        TickPlacement="None"
+                                        IsEnabled="{Binding CanAdjustVolume}"
+                                        Value="{Binding EditableVolume, Mode=TwoWay}"
+                                        VerticalAlignment="Center"
+                                        ValueChanged="VolumeSlider_ValueChanged"
+                                        PointerPressed="VolumeSlider_PointerPressed"
+                                        PointerCaptureLost="VolumeSlider_PointerCaptureLost" />
+                                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <Button Click="ToggleConnectionButton_Click" AutomationProperties.Name="{Binding ConnectionActionText}">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="{Binding ActionGlyph}" FontSize="14" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding ConnectionActionText}" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Content="{Binding HiddenActionText}" Click="ToggleHiddenButton_Click" />
+                                        <Button Content="{Binding ForgetActionText}" Click="ForgetDeviceButton_Click" />
+                                    </StackPanel>
+                                    <Grid Grid.Row="3" Grid.ColumnSpan="2" ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding AutoConnectLabel}" VerticalAlignment="Center" />
+                                        <ToggleSwitch
+                                            Grid.Column="1"
+                                            IsOn="{Binding AutoConnect}"
+                                            Toggled="AutoConnectToggle_Toggled"
+                                            OnContent=""
+                                            OffContent=""
+                                            MinWidth="0" />
+                                    </Grid>
+                                    <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="{Binding ErrorMessage}" Foreground="IndianRed" TextWrapping="WrapWholeWords" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+
+            <!-- 通用页：设置项列表 + 底部应用/放弃操作条（参考终端设置布局）。 -->
+            <Grid x:Name="GeneralPage" Visibility="Collapsed" DataContext="{Binding Draft, ElementName=Root}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <ScrollViewer Padding="24,16">
+                    <StackPanel Spacing="8">
+                        <TextBlock x:Name="GeneralPageTitle" Text="通用" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" />
+                        <controls:SettingItemCard
+                            x:Name="LanguageCard"
+                            Header="语言"
+                            Description="选择应用界面显示语言">
+                            <controls:SettingItemCard.ActionContent>
+                                <ComboBox MinWidth="180" SelectedIndex="{Binding Language, Mode=TwoWay}">
+                                    <ComboBoxItem Content="中文" />
+                                    <ComboBoxItem Content="English" />
+                                </ComboBox>
+                            </controls:SettingItemCard.ActionContent>
+                        </controls:SettingItemCard>
+                        <controls:SettingItemCard
+                            x:Name="StartupCard"
+                            Header="开机自启"
+                            Description="登录 Windows 后自动启动 AirBlade">
+                            <controls:SettingItemCard.ActionContent>
+                                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <TextBlock
+                                        Text="{Binding StartupEnabled, Converter={StaticResource BoolToOnOffTextConverter}}"
+                                        VerticalAlignment="Center"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <ToggleSwitch
+                                        IsOn="{Binding StartupEnabled, Mode=TwoWay}"
+                                        OnContent=""
+                                        OffContent=""
+                                        MinWidth="0" />
+                                </StackPanel>
+                            </controls:SettingItemCard.ActionContent>
+                        </controls:SettingItemCard>
+                    </StackPanel>
+                </ScrollViewer>
+                <Border
+                    Grid.Row="1"
+                    Height="55"
+                    Padding="24,8"
+                    Background="{ThemeResource SettingsBackgroundBrush}"
+                    BorderBrush="{ThemeResource SettingsCardStrokeBrush}"
+                    BorderThickness="0,1,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                        <Button x:Name="GeneralSaveButton" Content="保存" Click="SaveButton_Click" Style="{StaticResource AccentButtonStyle}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- 外观页：亚克力与配色模式 + 底部保存操作条。 -->
+            <Grid x:Name="AppearancePage" Visibility="Collapsed" DataContext="{Binding Draft, ElementName=Root}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <ScrollViewer Padding="24,16">
+                    <StackPanel Spacing="8">
+                        <TextBlock x:Name="AppearancePageTitle" Text="外观" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" />
+                        <controls:SettingItemCard
+                            x:Name="ThemeCard"
+                            Header="常用程序主题"
+                            Description="跟随系统，或固定为深色、浅色">
+                            <controls:SettingItemCard.ActionContent>
+                                <ComboBox MinWidth="180" SelectedIndex="{Binding AppearanceTheme, Mode=TwoWay}">
+                                    <ComboBoxItem x:Name="ThemeFollowSystemOption" Content="跟随系统" />
+                                    <ComboBoxItem x:Name="ThemeDarkOption" Content="深色" />
+                                    <ComboBoxItem x:Name="ThemeLightOption" Content="浅色" />
+                                </ComboBox>
+                            </controls:SettingItemCard.ActionContent>
+                        </controls:SettingItemCard>
+                        <controls:SettingItemCard
+                            x:Name="AcrylicCard"
+                            Header="控制窗口亚克力"
+                            Description="让快捷控制窗口使用亚克力模糊效果">
+                            <controls:SettingItemCard.ActionContent>
+                                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <TextBlock
+                                        Text="{Binding QuickWindowAcrylic, Converter={StaticResource BoolToOnOffTextConverter}}"
+                                        VerticalAlignment="Center"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <ToggleSwitch
+                                        IsOn="{Binding QuickWindowAcrylic, Mode=TwoWay}"
+                                        OnContent=""
+                                        OffContent=""
+                                        MinWidth="0" />
+                                </StackPanel>
+                            </controls:SettingItemCard.ActionContent>
+                        </controls:SettingItemCard>
+                    </StackPanel>
+                </ScrollViewer>
+                <Border
+                    Grid.Row="1"
+                    Height="55"
+                    Padding="24,8"
+                    Background="{ThemeResource SettingsBackgroundBrush}"
+                    BorderBrush="{ThemeResource SettingsCardStrokeBrush}"
+                    BorderThickness="0,1,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                        <Button x:Name="AppearanceSaveButton" Content="保存" Click="SaveButton_Click" Style="{StaticResource AccentButtonStyle}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- 关于页：版权信息与仓库占位。 -->
+            <ScrollViewer x:Name="AboutPage" Visibility="Collapsed" Padding="24,16">
+                <StackPanel Spacing="8">
+                    <TextBlock x:Name="AboutPageTitle" Text="关于" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,8" />
+                    <controls:SettingItemCard
+                        Header="AirBlade"
+                        Description="{Binding AppVersion}">
+                        <controls:SettingItemCard.ActionContent>
+                            <Image Source="Assets/AppIcon-1024.png" Width="40" Height="40" />
+                        </controls:SettingItemCard.ActionContent>
+                    </controls:SettingItemCard>
+                    <controls:SettingItemCard
+                        x:Name="CopyrightCard"
+                        Header="版权"
+                        Description="© 2026 AirBlade 贡献者，保留所有权利。（占位）" />
+                    <controls:SettingItemCard
+                        x:Name="RepositoryCard"
+                        Header="代码仓库"
+                        Description="https://github.com/airblade/airblade（占位）" />
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+        </NavigationView>
+    </Grid>
+</Window>

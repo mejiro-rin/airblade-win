@@ -46,4 +46,6 @@ public sealed record AirplayDeviceSnapshot(
     AirplaySessionState ConnectionState,
     float? VolumeDb,
     AirplayCoreException? LastError,
-    bool IsDiscovered);
+    bool IsDiscovered,
+    bool IsHidden,
+    bool AutoConnect);

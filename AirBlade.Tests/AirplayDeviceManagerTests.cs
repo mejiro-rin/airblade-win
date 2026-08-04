@@ -112,7 +112,172 @@ public sealed class AirplayDeviceManagerTests
     }
 
     [TestMethod]
-    public async Task 不记忆音量时不会在连接后应用或持久化()
+    public async Task 连接成功后记忆设备信息且重启后离线恢复()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
+        var settingsPath = SettingsPath;
+        await using (var settings = new DeviceSettingsService(settingsPath))
+        {
+            await using var manager = CreateManager(settings, native);
+            await manager.InitializeAsync();
+            await manager.DiscoverAsync();
+            await manager.ConnectAsync("device-1");
+
+            var remembered = settings.GetDeviceSettings("device-1");
+            Assert.AreEqual("客厅", remembered.DisplayName);
+            Assert.AreEqual("192.168.1.10", remembered.Address);
+            Assert.AreEqual((ushort)7000, remembered.Port);
+        }
+
+        // 重启后不依赖发现结果，也能从配置恢复设备信息（离线状态）。
+        await using var restored = new DeviceSettingsService(settingsPath);
+        await using var restoredManager = CreateManager(restored, new FakeNative());
+        await restoredManager.InitializeAsync();
+        var device = restoredManager.GetDevices(includeHidden: true).Single();
+        Assert.AreEqual("客厅", device.DisplayName);
+        Assert.AreEqual("192.168.1.10", device.Address);
+        Assert.AreEqual((ushort)7000, device.Port);
+        Assert.IsFalse(device.IsDiscovered);
+    }
+
+    [TestMethod]
+    public async Task 自动连接只连接已发现且开启自动连接的设备()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([
+            new("device-1", "客厅", "192.168.1.10", 7000),
+            new("device-2", "卧室", "192.168.1.20", 7001)]);
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await using var manager = CreateManager(settings, native);
+        await manager.InitializeAsync();
+        await settings.UpdateDeviceSettingsAsync("device-2", value => value with { AutoConnect = true, LastConnectedAt = DateTimeOffset.UtcNow });
+        await manager.DiscoverAsync();
+
+        Assert.IsTrue(await manager.AutoConnectAsync());
+        Assert.AreEqual("device-2", manager.CurrentConnectedDeviceId);
+        // 未开启自动连接的 device-1 不应被连接。
+        Assert.AreEqual(1, native.ConnectCount);
+    }
+
+    [TestMethod]
+    public async Task 离线记忆设备不触发自动连接()
+    {
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await settings.InitializeAsync();
+        await settings.UpdateDeviceSettingsAsync("device-1", value => value with
+        {
+            AutoConnect = true,
+            DisplayName = "客厅",
+            Address = "192.168.1.10",
+            Port = 7000,
+        });
+        var native = new FakeNative();
+        await using var manager = CreateManager(settings, native);
+        await manager.InitializeAsync();
+
+        Assert.IsFalse(await manager.AutoConnectAsync());
+        Assert.AreEqual(0, native.ConnectCount);
+    }
+
+    [TestMethod]
+    public async Task 记忆设备启动渲染即带记忆音量()
+    {
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await settings.InitializeAsync();
+        await settings.UpdateDeviceSettingsAsync("device-1", value => value with
+        {
+            DisplayName = "客厅",
+            Address = "192.168.1.10",
+            Port = 7000,
+            RememberVolume = true,
+            VolumeDb = -6,
+        });
+        await using var manager = CreateManager(settings, new FakeNative());
+        await manager.InitializeAsync();
+
+        var device = manager.GetDevices(includeHidden: true).Single();
+        Assert.AreEqual(-6f, device.VolumeDb);
+    }
+
+    [TestMethod]
+    public async Task 发现设备时即显示记忆音量()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await settings.InitializeAsync();
+        await settings.UpdateDeviceSettingsAsync("device-1", value => value with { RememberVolume = true, VolumeDb = -6 });
+        await using var manager = CreateManager(settings, native);
+        await manager.InitializeAsync();
+        await manager.DiscoverAsync();
+
+        var device = manager.GetDevices().Single();
+        Assert.AreEqual(-6f, device.VolumeDb);
+    }
+
+    [TestMethod]
+    public async Task 忘记设备会断开并删除运行时条目与记忆()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await using var manager = CreateManager(settings, native);
+        await manager.InitializeAsync();
+        await manager.DiscoverAsync();
+        await manager.ConnectAsync("device-1");
+        await manager.RemoveDeviceAsync("device-1");
+
+        Assert.AreEqual(0, manager.GetDevices(includeHidden: true).Count);
+        Assert.IsNull(manager.CurrentConnectedDeviceId);
+        Assert.IsNull(settings.GetDeviceSettings("device-1").Address);
+        StringAssert.Contains(string.Join("\n", native.Operations), "disconnect");
+    }
+
+    [TestMethod]
+    public async Task 连接成功会清除此前残留的错误()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await using var manager = CreateManager(settings, native);
+        await manager.InitializeAsync();
+        await manager.DiscoverAsync();
+        await manager.ConnectAsync("device-1");
+
+        // 播放中出错，错误应挂到当前设备卡片上（真实场景引擎在连接后才运行）。
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.Error, ErrorCode = -5 });
+        await WaitUntilAsync(() => manager.GetDevices().Single().LastError is not null);
+        Assert.IsNotNull(manager.GetDevices().Single().LastError);
+
+        // 重新连接成功后，旧错误不应继续挂在设备卡片上。
+        await manager.ConnectAsync("device-1");
+        Assert.IsNull(manager.GetDevices().Single().LastError);
+    }
+
+    [TestMethod]
+    public async Task 会话恢复活跃状态会清除残留错误()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await using var manager = CreateManager(settings, native);
+        await manager.InitializeAsync();
+        await manager.DiscoverAsync();
+        await manager.ConnectAsync("device-1");
+
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.Error, ErrorCode = -5 });
+        await WaitUntilAsync(() => manager.GetDevices().Single().LastError is not null);
+        Assert.IsNotNull(manager.GetDevices().Single().LastError);
+
+        // 会话重新进入活跃状态（Streaming）时，旧错误自动清除。
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.State, State = AirplaySessionState.Streaming });
+        await WaitUntilAsync(() => manager.GetDevices().Single().LastError is null);
+        Assert.AreEqual(AirplaySessionState.Streaming, manager.GetDevices().Single().ConnectionState);
+    }
+
+    [TestMethod]
+    public async Task 连接时不应用未记忆预设但用户调节音量总是持久化()
     {
         var native = new FakeNative();
         native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
@@ -125,7 +290,8 @@ public sealed class AirplayDeviceManagerTests
         await manager.SetVolumeAsync("device-1", -6);
 
         CollectionAssert.AreEqual(new[] { -6f }, native.SetVolumes);
-        Assert.AreEqual(-10f, settings.GetDeviceSettings("device-1").VolumeDb);
+        Assert.AreEqual(-6f, settings.GetDeviceSettings("device-1").VolumeDb);
+        Assert.IsTrue(settings.GetDeviceSettings("device-1").RememberVolume);
     }
 
     [TestMethod]
@@ -149,6 +315,22 @@ public sealed class AirplayDeviceManagerTests
         Assert.AreEqual(-8f, device.VolumeDb);
         Assert.IsNotNull(device.LastError);
         Assert.IsTrue(changed >= 4);
+    }
+
+    [TestMethod]
+    public async Task 远端音量事件会持久化供下次启动恢复()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await using var manager = CreateManager(settings, native);
+        await manager.InitializeAsync();
+        await manager.DiscoverAsync();
+        await manager.ConnectAsync("device-1");
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.Volume, VolumeDb = -30 });
+
+        await WaitUntilAsync(() => settings.GetDeviceSettings("device-1").VolumeDb == -30f);
+        Assert.IsTrue(settings.GetDeviceSettings("device-1").RememberVolume);
     }
 
     private static AirplayDeviceManager CreateManager(DeviceSettingsService settings, FakeNative native) => new(settings, new AirplaySessionService(native));

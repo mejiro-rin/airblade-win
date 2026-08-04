@@ -60,6 +60,7 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
             try
             {
                 await _session.InitializeAsync(operationCancellation.Token).ConfigureAwait(false);
+                RestoreRememberedDevices();
                 _initialized = true;
             }
             catch
@@ -79,20 +80,32 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
         try
         {
             EnsureInitialized();
-            lock (_stateGate)
-            {
-                foreach (var device in _devices.Values) device.MarkUndiscovered();
-            }
-            RaiseDevicesChanged();
-
             var timeout = _settings.GetGlobalSettings().DiscoveryTimeout;
             var discovered = await _session.DiscoverAsync(timeout, operationCancellation.Token).ConfigureAwait(false);
             lock (_stateGate)
             {
+                // 本轮发现到的设备：更新信息，ApplyDiscoveredDevice 内部会重置消失计数。
                 foreach (var result in discovered)
                 {
                     var device = _settings.ApplyDiscoveredDevice(result);
                     _devices[device.DeviceId] = device;
+                }
+
+                // 未发现的设备：活跃连接中的绝不标记（活跃会话就是在线证据）；
+                // 其余设备（未连接或已断联）本轮扫描不到即可标记未发现，及时反映消失，不延后。
+                var discoveredIds = discovered.Select(result => result.DeviceId).ToHashSet(StringComparer.Ordinal);
+                foreach (var device in _devices.Values)
+                {
+                    if (discoveredIds.Contains(device.DeviceId)) continue;
+
+                    var isCurrentDevice = _currentConnectedDeviceId is not null &&
+                        StringComparer.Ordinal.Equals(device.DeviceId, _currentConnectedDeviceId);
+                    var activelyConnected = isCurrentDevice &&
+                        device.ConnectionState is AirplaySessionState.Pairing or AirplaySessionState.Connecting or AirplaySessionState.Streaming;
+                    if (!activelyConnected)
+                    {
+                        device.MarkUndiscovered();
+                    }
                 }
             }
             RaiseDevicesChanged();
@@ -113,7 +126,7 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
             string? previousDeviceId;
             lock (_stateGate)
             {
-                if (!_devices.TryGetValue(deviceId, out device!)) throw new KeyNotFoundException($"找不到设备“{deviceId}”。");
+                if (!_devices.TryGetValue(deviceId, out device!)) throw new KeyNotFoundException(LocalizationService.Current.Format("Error.DeviceNotFound", deviceId));
                 previousDeviceId = _currentConnectedDeviceId;
             }
 
@@ -124,14 +137,22 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
             await _session.ConnectAsync($"{device.Address}:{device.Port}", settings.ConnectionPolicy, operationCancellation.Token).ConfigureAwait(false);
             await _settings.UpdateDeviceSettingsAsync(
                 deviceId,
-                value => value with { LastConnectedAt = DateTimeOffset.UtcNow },
+                value => value with
+                {
+                    // 连接成功后记忆设备信息，作为长期记忆供重启恢复。
+                    DisplayName = device.DisplayName,
+                    Address = device.Address,
+                    Port = device.Port,
+                    LastConnectedAt = DateTimeOffset.UtcNow,
+                },
                 operationCancellation.Token).ConfigureAwait(false);
 
             lock (_stateGate)
             {
                 _currentConnectedDeviceId = deviceId;
                 device.ConnectionState = _session.Current.State;
-                device.LastError = _session.Current.LastError;
+                // 连接成功即视为恢复正常，清除此前残留的错误，避免红色警告一直挂在卡片上。
+                device.LastError = null;
             }
 
             if (settings.RememberVolume)
@@ -155,6 +176,12 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
             EnsureInitialized();
             EnsureCurrentDevice(deviceId);
             await _session.DisconnectAsync(operationCancellation.Token).ConfigureAwait(false);
+            lock (_stateGate)
+            {
+                _currentConnectedDeviceId = null;
+                if (_devices.TryGetValue(deviceId, out var device)) device.ConnectionState = AirplaySessionState.Disconnected;
+            }
+            RaiseDevicesChanged();
         }
         finally { _operationGate.Release(); }
     }
@@ -168,12 +195,149 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
         try
         {
             EnsureInitialized();
-            EnsureCurrentDevice(deviceId);
-            await _session.SetVolumeAsync(volumeDb, operationCancellation.Token).ConfigureAwait(false);
-            var settings = _settings.GetDeviceSettings(deviceId);
-            if (settings.RememberVolume)
-                await _settings.UpdateDeviceSettingsAsync(deviceId, value => value with { VolumeDb = volumeDb }, operationCancellation.Token).ConfigureAwait(false);
+            lock (_stateGate)
+            {
+                if (!_devices.ContainsKey(deviceId)) throw new KeyNotFoundException(LocalizationService.Current.Format("Error.DeviceNotFound", deviceId));
+            }
+
+            // 无论是否已连接都持久化音量，作为连接前预设；已连接时同时实时下发到设备。
+            await _settings.UpdateDeviceSettingsAsync(
+                deviceId,
+                value => value with { VolumeDb = volumeDb, RememberVolume = true },
+                operationCancellation.Token).ConfigureAwait(false);
+            if (StringComparer.Ordinal.Equals(CurrentConnectedDeviceId, deviceId))
+                await _session.SetVolumeAsync(volumeDb, operationCancellation.Token).ConfigureAwait(false);
             lock (_stateGate) _devices[deviceId].VolumeDb = volumeDb;
+            RaiseDevicesChanged();
+        }
+        finally { _operationGate.Release(); }
+    }
+
+    /// <summary>
+    /// 启动时把配置文件里记忆过的设备恢复到运行时列表（离线状态），
+    /// 这样即使设备当前不在线，设置页也能看到并保留其配置。
+    /// </summary>
+    private void RestoreRememberedDevices()
+    {
+        lock (_stateGate)
+        {
+            foreach (var (deviceId, settings) in _settings.GetRememberedDevices())
+            {
+                if (settings.Address is null || settings.Port is not > 0) continue;
+                if (_devices.ContainsKey(deviceId)) continue;
+                var remembered = new AirplayDevice(
+                    deviceId,
+                    string.IsNullOrWhiteSpace(settings.DisplayName) ? deviceId : settings.DisplayName,
+                    settings.Address,
+                    settings.Port.Value);
+                // 渲染时就带上记忆音量，避免连接前滑块一直显示默认值。
+                if (settings.RememberVolume) remembered.VolumeDb = settings.VolumeDb;
+                _devices.Add(deviceId, remembered);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 更新设备在快捷列表中的可见性，并立即通知界面刷新。
+    /// </summary>
+    public async Task SetDeviceHiddenAsync(string deviceId, bool hidden, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
+        ThrowIfDisposed();
+        using var operationCancellation = CreateOperationCancellation(cancellationToken);
+        await EnterOperationAsync(operationCancellation.Token).ConfigureAwait(false);
+        try
+        {
+            EnsureInitialized();
+            lock (_stateGate)
+            {
+                if (!_devices.ContainsKey(deviceId)) throw new KeyNotFoundException(LocalizationService.Current.Format("Error.DeviceNotFound", deviceId));
+            }
+            await _settings.UpdateDeviceSettingsAsync(
+                deviceId,
+                value => value with { Hidden = hidden },
+                operationCancellation.Token).ConfigureAwait(false);
+            RaiseDevicesChanged();
+        }
+        finally { _operationGate.Release(); }
+    }
+
+    /// <summary>
+    /// 更新设备是否自动连接，设置页的开关直接持久化到这里。
+    /// </summary>
+    public async Task SetAutoConnectAsync(string deviceId, bool autoConnect, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
+        ThrowIfDisposed();
+        using var operationCancellation = CreateOperationCancellation(cancellationToken);
+        await EnterOperationAsync(operationCancellation.Token).ConfigureAwait(false);
+        try
+        {
+            EnsureInitialized();
+            lock (_stateGate)
+            {
+                if (!_devices.ContainsKey(deviceId)) throw new KeyNotFoundException(LocalizationService.Current.Format("Error.DeviceNotFound", deviceId));
+            }
+            await _settings.UpdateDeviceSettingsAsync(
+                deviceId,
+                value => value with { AutoConnect = autoConnect },
+                operationCancellation.Token).ConfigureAwait(false);
+            RaiseDevicesChanged();
+        }
+        finally { _operationGate.Release(); }
+    }
+
+    /// <summary>
+    /// 启动阶段调用：自动连接最近连接过且当前已发现的自动连接设备。
+    /// 没有符合条件的设备时返回 false，不做任何事。
+    /// </summary>
+    public async Task<bool> AutoConnectAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        EnsureInitialized();
+        string? target;
+        lock (_stateGate)
+        {
+            target = _devices.Values
+                .Where(device => device.IsDiscovered)
+                .Select(device => (Device: device, Settings: _settings.GetDeviceSettings(device.DeviceId)))
+                .Where(item => item.Settings.AutoConnect)
+                .OrderByDescending(item => item.Settings.LastConnectedAt)
+                .Select(item => item.Device.DeviceId)
+                .FirstOrDefault();
+        }
+        if (target is null) return false;
+        await ConnectAsync(target, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
+    /// 忘记设备：断开连接（如正在播放），从运行时列表移除并删除全部记忆配置。
+    /// 删除后设备重新被发现时会作为新设备出现。
+    /// </summary>
+    public async Task RemoveDeviceAsync(string deviceId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
+        ThrowIfDisposed();
+        using var operationCancellation = CreateOperationCancellation(cancellationToken);
+        await EnterOperationAsync(operationCancellation.Token).ConfigureAwait(false);
+        try
+        {
+            EnsureInitialized();
+            lock (_stateGate)
+            {
+                if (!_devices.ContainsKey(deviceId)) throw new KeyNotFoundException(LocalizationService.Current.Format("Error.DeviceNotFound", deviceId));
+            }
+
+            // 正在播放该设备时先断开，再移除记忆，避免留下无法操作的连接状态。
+            if (StringComparer.Ordinal.Equals(CurrentConnectedDeviceId, deviceId))
+            {
+                await _session.DisconnectAsync(operationCancellation.Token).ConfigureAwait(false);
+                lock (_stateGate) _currentConnectedDeviceId = null;
+            }
+
+            lock (_stateGate) _devices.Remove(deviceId);
+            await _settings.RemoveDeviceAsync(deviceId, operationCancellation.Token).ConfigureAwait(false);
             RaiseDevicesChanged();
         }
         finally { _operationGate.Release(); }
@@ -191,7 +355,7 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
 
     private void EnsureInitialized()
     {
-        if (!_initialized) throw new InvalidOperationException("请先调用 InitializeAsync。");
+        if (!_initialized) throw new InvalidOperationException(LocalizationService.Current["Error.InitializeFirst"]);
     }
 
     private void EnsureCurrentDevice(string deviceId)
@@ -199,7 +363,7 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
         lock (_stateGate)
         {
             if (!StringComparer.Ordinal.Equals(_currentConnectedDeviceId, deviceId))
-                throw new InvalidOperationException("只能操作当前连接的设备。");
+                throw new InvalidOperationException(LocalizationService.Current["Error.CurrentDeviceOnly"]);
         }
     }
 
@@ -221,11 +385,27 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
     private void OnSessionVolumeChanged(object? sender, AirplayVolumeChangedEventArgs args)
     {
         if (Volatile.Read(ref _disposed) != 0) return;
+        string? deviceId;
         lock (_stateGate)
         {
-            if (_currentConnectedDeviceId is not null && _devices.TryGetValue(_currentConnectedDeviceId, out var device)) device.VolumeDb = args.VolumeDb;
+            deviceId = _currentConnectedDeviceId;
+            if (deviceId is not null && _devices.TryGetValue(deviceId, out var device)) device.VolumeDb = args.VolumeDb;
         }
+        // 远端（HomePod/iOS）调节音量后同步持久化，让下次启动能恢复真实音量。
+        if (deviceId is not null) _ = PersistRemoteVolumeAsync(deviceId, args.VolumeDb);
         RaiseDevicesChanged();
+    }
+
+    private async Task PersistRemoteVolumeAsync(string deviceId, float volumeDb)
+    {
+        try
+        {
+            await _settings.UpdateDeviceSettingsAsync(deviceId, value => value with { VolumeDb = volumeDb, RememberVolume = true }).ConfigureAwait(false);
+        }
+        catch
+        {
+            // 音量回写失败不影响播放，避免轮询线程抛出未处理异常。
+        }
     }
 
     private void OnSessionErrorOccurred(object? sender, AirplayCoreException error)
@@ -239,7 +419,17 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
     }
 
     private void RaiseDevicesChanged() => DevicesChanged?.Invoke(this, EventArgs.Empty);
-    private static AirplayDeviceSnapshot ToSnapshot(AirplayDevice device) => new(device.DeviceId, device.DisplayName, device.Address, device.Port, device.ConnectionState, device.VolumeDb, device.LastError, device.IsDiscovered);
+    private AirplayDeviceSnapshot ToSnapshot(AirplayDevice device) => new(
+        device.DeviceId,
+        device.DisplayName,
+        device.Address,
+        device.Port,
+        device.ConnectionState,
+        device.VolumeDb,
+        device.LastError,
+        device.IsDiscovered,
+        _settings.GetDeviceSettings(device.DeviceId).Hidden,
+        _settings.GetDeviceSettings(device.DeviceId).AutoConnect);
     private void UnsubscribeSessionEvents()
     {
         _session.StateChanged -= OnSessionStateChanged;

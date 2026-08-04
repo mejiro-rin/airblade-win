@@ -30,9 +30,10 @@ public sealed class DeviceSettingsServiceTests
         Assert.IsFalse(device.AutoConnect);
         Assert.AreEqual(AirplayConnectionPolicy.Manual, device.ConnectionPolicy);
         Assert.IsTrue(device.RememberVolume);
-        Assert.AreEqual(-18f, device.VolumeDb);
+        Assert.AreEqual(-15.12f, device.VolumeDb);
         Assert.IsFalse(global.StartupEnabled);
-        Assert.AreEqual(TimeSpan.FromSeconds(5), global.DiscoveryTimeout);
+        Assert.AreEqual(TimeSpan.FromSeconds(2), global.DiscoveryTimeout);
+        Assert.IsFalse(global.QuickWindowAcrylic);
         Assert.IsFalse(File.Exists(SettingsPath));
     }
 
@@ -43,7 +44,7 @@ public sealed class DeviceSettingsServiceTests
         await using (var service = new DeviceSettingsService(SettingsPath))
         {
             await service.InitializeAsync();
-            await service.UpdateGlobalSettingsAsync(value => value with { StartupEnabled = true, LoggingEnabled = true, DefaultVolumeDb = -12, DiscoveryTimeout = TimeSpan.FromSeconds(8) });
+            await service.UpdateGlobalSettingsAsync(value => value with { StartupEnabled = true, LoggingEnabled = true, DefaultVolumeDb = -12, DiscoveryTimeout = TimeSpan.FromSeconds(8), QuickWindowAcrylic = true });
             await service.UpdateDeviceSettingsAsync("device-1", value => value with { AutoConnect = true, ConnectionPolicy = AirplayConnectionPolicy.Automatic, RememberVolume = false, VolumeDb = -6, Hidden = true, LastConnectedAt = connectedAt });
         }
         await using var restored = new DeviceSettingsService(SettingsPath);
@@ -54,12 +55,39 @@ public sealed class DeviceSettingsServiceTests
         Assert.IsTrue(global.LoggingEnabled);
         Assert.AreEqual(-12f, global.DefaultVolumeDb);
         Assert.AreEqual(TimeSpan.FromSeconds(8), global.DiscoveryTimeout);
+        Assert.IsTrue(global.QuickWindowAcrylic);
         Assert.IsTrue(device.AutoConnect);
         Assert.AreEqual(AirplayConnectionPolicy.Automatic, device.ConnectionPolicy);
         Assert.IsFalse(device.RememberVolume);
         Assert.AreEqual(-6f, device.VolumeDb);
         Assert.IsTrue(device.Hidden);
         Assert.AreEqual(connectedAt, device.LastConnectedAt);
+    }
+
+    [TestMethod]
+    public async Task 删除设备后失去全部记忆且重启不会恢复()
+    {
+        await using (var service = new DeviceSettingsService(SettingsPath))
+        {
+            await service.InitializeAsync();
+            await service.UpdateDeviceSettingsAsync("device-1", value => value with
+            {
+                DisplayName = "客厅",
+                Address = "192.168.1.10",
+                Port = 7000,
+                AutoConnect = true,
+                VolumeDb = -6,
+            });
+            await service.RemoveDeviceAsync("device-1");
+
+            var cleared = service.GetDeviceSettings("device-1");
+            Assert.IsNull(cleared.Address);
+            Assert.IsFalse(cleared.AutoConnect);
+            Assert.AreEqual(0, service.GetRememberedDevices().Count);
+        }
+        await using var restored = new DeviceSettingsService(SettingsPath);
+        await restored.InitializeAsync();
+        Assert.AreEqual(0, restored.GetRememberedDevices().Count);
     }
 
     [TestMethod]
