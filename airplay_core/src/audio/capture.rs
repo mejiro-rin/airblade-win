@@ -1,8 +1,7 @@
+use super::AudioSampleBuffer;
 use super::device::get_default_render_device;
 use super::processing::{InputPcmFormat, SampleEncoding};
 use crate::error::{CoreError, Result};
-use ringbuf::HeapProd;
-use ringbuf::traits::Producer;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::Foundation::*;
@@ -68,10 +67,10 @@ impl WasapiCapture {
     }
 }
 
-/// 采集主循环,跑在独立线程里。producer 的所有权被move进来。
+/// 采集主循环，跑在独立线程里。采样队列的所有权被 move 进来。
 pub fn run_capture_loop(
     capture: &WasapiCapture,
-    mut producer: HeapProd<f32>,
+    producer: AudioSampleBuffer,
     running: Arc<AtomicBool>,
 ) {
     while running.load(Ordering::Relaxed) {
@@ -103,16 +102,14 @@ pub fn run_capture_loop(
                 let sample_count = frames_available as usize * channels;
 
                 if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
-                    for _ in 0..sample_count {
-                        let _ = producer.try_push(0.0f32);
-                    }
+                    // 环回音频是实时流：缓冲满时保留最新采样、丢弃最旧采样，
+                    // 避免旧声音积压到发送端造成设备端持续落后。
+                    producer.push_zeros(sample_count);
                 } else {
                     let byte_count = frames_available as usize * capture.format.block_align;
                     let bytes = std::slice::from_raw_parts(data_ptr, byte_count);
                     if let Ok(samples) = capture.format.decode(bytes) {
-                        for sample in samples {
-                            let _ = producer.try_push(sample);
-                        }
+                        producer.push(&samples);
                     }
                 }
 

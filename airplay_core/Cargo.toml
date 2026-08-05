@@ -25,7 +25,6 @@ windows = { version = "0.58", features = [
     "Win32_Security",
     "Win32_Security_Cryptography",
 ] }
-ringbuf = "0.4"
 hound = "3.5"       # 用于验证阶段写WAV文件
 
 [lib]

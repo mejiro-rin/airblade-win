@@ -1,12 +1,10 @@
+use super::AudioSampleBuffer;
 use hound::{SampleFormat, WavSpec, WavWriter};
-use ringbuf::HeapCons;
-use ringbuf::traits::Consumer;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// consumer 的所有权被move进来。
 pub fn write_to_wav(
-    mut consumer: HeapCons<f32>,
+    consumer: AudioSampleBuffer,
     sample_rate: u32,
     channels: u16,
     running: Arc<AtomicBool>,

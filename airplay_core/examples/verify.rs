@@ -1,4 +1,4 @@
-use airplay_core::audio::{WasapiCapture, create_ring, run_capture_loop, write_to_wav};
+use airplay_core::audio::{AudioSampleBuffer, WasapiCapture, run_capture_loop, write_to_wav};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -11,7 +11,9 @@ fn main() -> airplay_core::error::Result<()> {
 
     // 0.5秒缓冲量
     let capacity = (sample_rate as usize) * (channels as usize) / 2;
-    let (producer, consumer) = create_ring(capacity);
+    let buffer = AudioSampleBuffer::new(capacity);
+    let producer = buffer.clone();
+    let consumer = buffer;
 
     capture.start()?;
     let running = Arc::new(AtomicBool::new(true));

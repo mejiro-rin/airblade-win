@@ -7,10 +7,11 @@ pub mod system_volume;
 pub mod wav_writer;
 
 pub use alac::encode_uncompressed_stereo;
-pub use buffer::create_ring;
+pub use buffer::AudioSampleBuffer;
 pub use capture::{WasapiCapture, run_capture_loop};
 pub use processing::{
-    AIRPLAY_SAMPLE_RATE, ALAC_FRAMES_PER_PACKET, InputPcmFormat, PcmConverter, SampleEncoding,
+    AIRPLAY_CHANNELS, AIRPLAY_SAMPLE_RATE, ALAC_FRAMES_PER_PACKET, InputPcmFormat, PcmConverter,
+    SampleEncoding,
 };
 pub use system_volume::{get_default_render_mute, set_default_render_mute};
 pub use wav_writer::write_to_wav;

@@ -1,5 +1,6 @@
 //! RTP 音频包序列化。
 //! 后续加密音频负载时，RTP 头部将作为认证附加数据，不能被中途篡改。
+use crate::audio::ALAC_FRAMES_PER_PACKET;
 use crate::error::{CoreError, Result};
 use chacha20poly1305::{
     ChaCha20Poly1305, Nonce,
@@ -8,6 +9,10 @@ use chacha20poly1305::{
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const RTP_HEADER_LEN: usize = 12;
+
+/// 首个同步包在首包时间戳之前留出的播放窗口（44.1 kHz 采样数，250 ms）。
+/// 对应接收端报告的最小渲染延迟，让设备收到首包后可以立即开始播放。
+const LATENCY_OFFSET_FRAMES: u32 = 11_025;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RtpClock {
@@ -68,7 +73,7 @@ impl RtpClock {
         packet.extend_from_slice(&self.ssrc.to_be_bytes());
         packet.extend_from_slice(payload);
         self.sequence = self.sequence.wrapping_add(1);
-        self.timestamp = self.timestamp.wrapping_add(352);
+        self.timestamp = self.timestamp.wrapping_add(ALAC_FRAMES_PER_PACKET as u32);
         Ok(packet)
     }
 
@@ -93,7 +98,7 @@ impl RtpClock {
         packet.extend_from_slice(&header);
         packet.extend_from_slice(&encrypted);
         self.sequence = self.sequence.wrapping_add(1);
-        self.timestamp = self.timestamp.wrapping_add(352);
+        self.timestamp = self.timestamp.wrapping_add(ALAC_FRAMES_PER_PACKET as u32);
         Ok(packet)
     }
 
@@ -117,7 +122,7 @@ pub fn ptp_sync_packet(rtp_timestamp: u32, clock_id: u64, initial: bool) -> [u8;
         .saturating_mul(1_000_000_000)
         .saturating_add(now.subsec_nanos() as u64);
     packet[8..16].copy_from_slice(&nanos.to_be_bytes());
-    let first_playable = rtp_timestamp.wrapping_sub(11_025);
+    let first_playable = rtp_timestamp.wrapping_sub(LATENCY_OFFSET_FRAMES);
     packet[16..20].copy_from_slice(&first_playable.to_be_bytes());
     packet[20..28].copy_from_slice(&clock_id.to_be_bytes());
     packet

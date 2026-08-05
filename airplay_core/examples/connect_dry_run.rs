@@ -36,7 +36,10 @@ fn main() {
 
     println!("[2/5] 读取 /info...");
     let info = channel.get_info().expect("读取设备信息失败");
-    println!("      名称={:?} 型号={:?} statusFlags={:?}", info.name, info.model, info.status_flags);
+    println!(
+        "      名称={:?} 型号={:?} statusFlags={:?}",
+        info.name, info.model, info.status_flags
+    );
 
     println!("[3/5] SETUP 会话...");
     let mut session = channel.setup_session().expect("SETUP 失败");
@@ -50,7 +53,10 @@ fn main() {
     let stream = session.setup_stream().expect("SETUP_STREAM 失败");
     println!(
         "      data_port={} control_port={} 本机控制端口={} 延迟={} 采样",
-        stream.data_port, stream.control_port, stream.local_control_port, stream.latency_min_samples
+        stream.data_port,
+        stream.control_port,
+        stream.local_control_port,
+        stream.latency_min_samples
     );
 
     // 到此为止：不发送任何音频包，立即拆除会话，恢复设备原状。

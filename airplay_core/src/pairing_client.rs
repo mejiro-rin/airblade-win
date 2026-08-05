@@ -22,6 +22,8 @@ use crate::{
 };
 
 const TRANSIENT_PAIRING_FLAG: u8 = 0x10;
+/// RTP 重传请求的查找范围：保留最近 1000 个加密音频包（约 8 秒）。
+const MAX_RETRANSMIT_BACKLOG: usize = 1000;
 
 #[derive(Debug, Clone)]
 pub struct PairSetupM2 {
@@ -291,7 +293,7 @@ impl PairedControlChannel {
             rtp_clock: None,
             audio_encryptor: None,
             first_audio_packet: true,
-            retransmit_backlog: VecDeque::with_capacity(1000),
+            retransmit_backlog: VecDeque::with_capacity(MAX_RETRANSMIT_BACKLOG),
         })
     }
 
@@ -640,7 +642,7 @@ impl AirPlayControlSession {
         }
         self.first_audio_packet = false;
         let sequence = u16::from_be_bytes([packet[2], packet[3]]);
-        if self.retransmit_backlog.len() == 1000 {
+        if self.retransmit_backlog.len() == MAX_RETRANSMIT_BACKLOG {
             self.retransmit_backlog.pop_front();
         }
         self.retransmit_backlog.push_back((sequence, packet));
