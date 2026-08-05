@@ -51,4 +51,6 @@ internal static class AirplayCoreNative
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int airplay_session_poll_event(ulong handle, out AirplayEvent airplayEvent);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int airplay_session_destroy(ulong handle);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int airplay_discover_homepods(uint timeoutMs, [Out, MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 2)] AirplayTargetInfo[] targets, nuint capacity, out nuint count);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int airplay_system_get_mute();
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int airplay_system_set_mute(int muted);
 }

@@ -186,6 +186,24 @@
                                 </StackPanel>
                             </controls:SettingItemCard.ActionContent>
                         </controls:SettingItemCard>
+                        <controls:SettingItemCard
+                            x:Name="MuteComputerCard"
+                            Header="连接设备后静音电脑"
+                            Description="连接 AirPlay 设备后自动静音电脑，断开或退出后恢复（过渡功能）">
+                            <controls:SettingItemCard.ActionContent>
+                                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <TextBlock
+                                        Text="{Binding MuteComputerWhenConnected, Converter={StaticResource BoolToOnOffTextConverter}}"
+                                        VerticalAlignment="Center"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <ToggleSwitch
+                                        IsOn="{Binding MuteComputerWhenConnected, Mode=TwoWay}"
+                                        OnContent=""
+                                        OffContent=""
+                                        MinWidth="0" />
+                                </StackPanel>
+                            </controls:SettingItemCard.ActionContent>
+                        </controls:SettingItemCard>
                     </StackPanel>
                 </ScrollViewer>
                 <Border

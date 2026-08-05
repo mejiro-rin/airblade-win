@@ -10,20 +10,24 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
 {
     private readonly DeviceSettingsService _settings;
     private readonly AirplaySessionService _session;
+    private readonly ISystemMuteController _systemMute;
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private readonly object _stateGate = new();
     private readonly Dictionary<string, AirplayDevice> _devices = new(StringComparer.Ordinal);
     private string? _currentConnectedDeviceId;
+    // 标记当前系统静音是否由本功能接管（连接成功后自动静音），断开或退出时恢复。
+    private bool _systemMuteOwned;
     private bool _initialized;
     private int _disposed;
 
-    public AirplayDeviceManager(DeviceSettingsService settings) : this(settings, new AirplaySessionService()) { }
+    public AirplayDeviceManager(DeviceSettingsService settings) : this(settings, new AirplaySessionService(), new SystemMuteController()) { }
 
-    internal AirplayDeviceManager(DeviceSettingsService settings, AirplaySessionService session)
+    internal AirplayDeviceManager(DeviceSettingsService settings, AirplaySessionService session, ISystemMuteController? systemMute = null)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _session = session ?? throw new ArgumentNullException(nameof(session));
+        _systemMute = systemMute ?? new SystemMuteController();
     }
 
     public event EventHandler? DevicesChanged;
@@ -150,7 +154,11 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
             lock (_stateGate)
             {
                 _currentConnectedDeviceId = deviceId;
-                device.ConnectionState = _session.Current.State;
+                // 轮询事件尚未到达前，先乐观显示“正在连接”，让按钮立即进入断开/暂停态；
+                // 后续 Pairing/Streaming 事件会覆盖为真实状态。
+                device.ConnectionState = _session.Current.State is AirplaySessionState.Pairing or AirplaySessionState.Connecting or AirplaySessionState.Streaming
+                    ? _session.Current.State
+                    : AirplaySessionState.Connecting;
                 // 连接成功即视为恢复正常，清除此前残留的错误，避免红色警告一直挂在卡片上。
                 device.LastError = null;
             }
@@ -180,6 +188,7 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
             {
                 _currentConnectedDeviceId = null;
                 if (_devices.TryGetValue(deviceId, out var device)) device.ConnectionState = AirplaySessionState.Disconnected;
+                ApplySystemMutePolicyCore(active: false);
             }
             RaiseDevicesChanged();
         }
@@ -312,6 +321,22 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
     }
 
     /// <summary>
+    /// 设置保存后立即应用“连接后静音电脑”策略：
+    /// 当前正在播放且开关开启则静音，否则恢复本功能造成的静音。
+    /// </summary>
+    public void RefreshSystemMutePolicy()
+    {
+        ThrowIfDisposed();
+        lock (_stateGate)
+        {
+            var isStreaming = _currentConnectedDeviceId is not null
+                && _devices.TryGetValue(_currentConnectedDeviceId, out var device)
+                && device.ConnectionState == AirplaySessionState.Streaming;
+            ApplySystemMutePolicyCore(isStreaming);
+        }
+    }
+
+    /// <summary>
     /// 忘记设备：断开连接（如正在播放），从运行时列表移除并删除全部记忆配置。
     /// 删除后设备重新被发现时会作为新设备出现。
     /// </summary>
@@ -378,8 +403,36 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
                 device.VolumeDb = args.Current.VolumeDb;
                 device.LastError = args.Current.LastError;
             }
+            ApplySystemMutePolicyCore(active: args.Current.State == AirplaySessionState.Streaming);
         }
         RaiseDevicesChanged();
+    }
+
+    /// <summary>
+    /// 按连接状态与全局开关应用静音策略：
+    /// 连接成功时若电脑当前未静音则由本功能静音；断开时只恢复本功能造成的静音，
+    /// 用户原本的静音状态不受影响。
+    /// </summary>
+    private void ApplySystemMutePolicyCore(bool active)
+    {
+        if (active)
+        {
+            if (_systemMuteOwned || !_settings.GetGlobalSettings().MuteComputerWhenConnected) return;
+            if (_systemMute.GetMuted() == false)
+            {
+                _systemMute.SetMuted(true);
+                _systemMuteOwned = true;
+            }
+            return;
+        }
+        RestoreSystemMuteCore();
+    }
+
+    private void RestoreSystemMuteCore()
+    {
+        if (!_systemMuteOwned) return;
+        _systemMute.SetMuted(false);
+        _systemMuteOwned = false;
     }
 
     private void OnSessionVolumeChanged(object? sender, AirplayVolumeChangedEventArgs args)
@@ -446,6 +499,7 @@ public sealed class AirplayDeviceManager : IAsyncDisposable
         try { UnsubscribeSessionEvents(); }
         finally
         {
+            lock (_stateGate) RestoreSystemMuteCore();
             _operationGate.Release();
             await _session.DisposeAsync().ConfigureAwait(false);
             _lifetimeCancellation.Dispose();

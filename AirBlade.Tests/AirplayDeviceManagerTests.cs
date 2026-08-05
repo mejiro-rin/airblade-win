@@ -318,6 +318,124 @@ public sealed class AirplayDeviceManagerTests
     }
 
     [TestMethod]
+    public async Task 意外断联后保留会话关联且错误挂在设备上()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await using var manager = CreateManager(settings, native);
+        await manager.InitializeAsync();
+        await manager.DiscoverAsync();
+        await manager.ConnectAsync("device-1");
+        Assert.AreEqual("device-1", manager.CurrentConnectedDeviceId);
+
+        // 播放中意外断联：原生层发错误事件，会话进入失败状态。
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.Error, ErrorCode = -5 });
+        await WaitUntilAsync(() => manager.GetDevices().Single().ConnectionState == AirplaySessionState.Failed);
+
+        var device = manager.GetDevices().Single();
+        Assert.AreEqual(AirplaySessionState.Failed, device.ConnectionState);
+        Assert.IsNotNull(device.LastError);
+        // 会话仍关联该设备，自动重连恢复后状态可以继续回流到卡片。
+        Assert.AreEqual("device-1", manager.CurrentConnectedDeviceId);
+    }
+
+    [TestMethod]
+    public async Task 开关开启时连接成功自动静音且断开恢复()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
+        var mute = new FakeSystemMuteController();
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await using var manager = CreateManager(settings, native, mute);
+        await manager.InitializeAsync();
+        await settings.UpdateGlobalSettingsAsync(value => value with { MuteComputerWhenConnected = true });
+        await manager.DiscoverAsync();
+        await manager.ConnectAsync("device-1");
+
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.State, State = AirplaySessionState.Streaming });
+        await WaitUntilAsync(() => mute.Calls.Count > 0);
+        CollectionAssert.AreEqual(new[] { true }, mute.Calls);
+
+        await manager.DisconnectAsync("device-1");
+        CollectionAssert.AreEqual(new[] { true, false }, mute.Calls);
+    }
+
+    [TestMethod]
+    public async Task 开关开启时意外断联自动恢复静音()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
+        var mute = new FakeSystemMuteController();
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await using var manager = CreateManager(settings, native, mute);
+        await manager.InitializeAsync();
+        await settings.UpdateGlobalSettingsAsync(value => value with { MuteComputerWhenConnected = true });
+        await manager.DiscoverAsync();
+        await manager.ConnectAsync("device-1");
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.State, State = AirplaySessionState.Streaming });
+        await WaitUntilAsync(() => mute.Calls.Count > 0);
+
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.Error, ErrorCode = -5 });
+        await WaitUntilAsync(() => mute.Calls.Count > 1);
+        CollectionAssert.AreEqual(new[] { true, false }, mute.Calls);
+    }
+
+    [TestMethod]
+    public async Task 退出时自动恢复本功能造成的静音()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
+        var mute = new FakeSystemMuteController();
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        var manager = CreateManager(settings, native, mute);
+        await manager.InitializeAsync();
+        await settings.UpdateGlobalSettingsAsync(value => value with { MuteComputerWhenConnected = true });
+        await manager.DiscoverAsync();
+        await manager.ConnectAsync("device-1");
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.State, State = AirplaySessionState.Streaming });
+        await WaitUntilAsync(() => mute.Calls.Count > 0);
+
+        await manager.DisposeAsync();
+        CollectionAssert.AreEqual(new[] { true, false }, mute.Calls);
+    }
+
+    [TestMethod]
+    public async Task 开关关闭时连接成功不静音()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
+        var mute = new FakeSystemMuteController();
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await using var manager = CreateManager(settings, native, mute);
+        await manager.InitializeAsync();
+        await manager.DiscoverAsync();
+        await manager.ConnectAsync("device-1");
+
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.State, State = AirplaySessionState.Streaming });
+        await WaitUntilAsync(() => manager.GetDevices().Single().ConnectionState == AirplaySessionState.Streaming);
+        Assert.AreEqual(0, mute.Calls.Count);
+    }
+
+    [TestMethod]
+    public async Task 连接前电脑已静音时不接管静音()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("device-1", "客厅", "192.168.1.10", 7000)]);
+        var mute = new FakeSystemMuteController { InitialMuted = true };
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await using var manager = CreateManager(settings, native, mute);
+        await manager.InitializeAsync();
+        await settings.UpdateGlobalSettingsAsync(value => value with { MuteComputerWhenConnected = true });
+        await manager.DiscoverAsync();
+        await manager.ConnectAsync("device-1");
+
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.State, State = AirplaySessionState.Streaming });
+        await WaitUntilAsync(() => manager.GetDevices().Single().ConnectionState == AirplaySessionState.Streaming);
+        Assert.AreEqual(0, mute.Calls.Count);
+    }
+
+    [TestMethod]
     public async Task 远端音量事件会持久化供下次启动恢复()
     {
         var native = new FakeNative();
@@ -334,6 +452,7 @@ public sealed class AirplayDeviceManagerTests
     }
 
     private static AirplayDeviceManager CreateManager(DeviceSettingsService settings, FakeNative native) => new(settings, new AirplaySessionService(native));
+    private static AirplayDeviceManager CreateManager(DeviceSettingsService settings, FakeNative native, ISystemMuteController systemMute) => new(settings, new AirplaySessionService(native), systemMute);
 
     private static async Task WaitUntilAsync(Func<bool> predicate)
     {
@@ -377,5 +496,13 @@ public sealed class AirplayDeviceManagerTests
             System.Text.Encoding.UTF8.GetBytes(value, bytes);
             return bytes;
         }
+    }
+
+    private sealed class FakeSystemMuteController : ISystemMuteController
+    {
+        public bool? InitialMuted { get; set; } = false;
+        public List<bool> Calls { get; } = [];
+        public bool? GetMuted() => InitialMuted;
+        public void SetMuted(bool muted) => Calls.Add(muted);
     }
 }

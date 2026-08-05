@@ -10,11 +10,13 @@ public sealed class SettingsDraftViewModel : ObservableObject
     private int _appearanceTheme;
     private int _language;
     private bool _quickWindowAcrylic;
+    private bool _muteComputerWhenConnected;
 
     public bool StartupEnabled { get => _startupEnabled; set => SetProperty(ref _startupEnabled, value); }
     public int AppearanceTheme { get => _appearanceTheme; set => SetProperty(ref _appearanceTheme, value); }
     public int Language { get => _language; set => SetProperty(ref _language, value); }
     public bool QuickWindowAcrylic { get => _quickWindowAcrylic; set => SetProperty(ref _quickWindowAcrylic, value); }
+    public bool MuteComputerWhenConnected { get => _muteComputerWhenConnected; set => SetProperty(ref _muteComputerWhenConnected, value); }
 
     /// <summary>
     /// 用另一份草稿覆盖当前值，用于应用与还原。
@@ -25,5 +27,6 @@ public sealed class SettingsDraftViewModel : ObservableObject
         AppearanceTheme = source.AppearanceTheme;
         Language = source.Language;
         QuickWindowAcrylic = source.QuickWindowAcrylic;
+        MuteComputerWhenConnected = source.MuteComputerWhenConnected;
     }
 }

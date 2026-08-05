@@ -39,4 +39,7 @@ public sealed record GlobalSettings
 
     /// <summary>控制窗口是否启用亚克力模糊效果。</summary>
     public bool QuickWindowAcrylic { get; init; } = false;
+
+    /// <summary>连接设备后自动静音电脑（过渡功能），断开或退出时恢复。</summary>
+    public bool MuteComputerWhenConnected { get; init; } = false;
 }

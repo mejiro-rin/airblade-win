@@ -65,6 +65,7 @@ public sealed partial class SettingsWindow : Window
         _appliedSettings.Language = (int)global.Language;
         _appliedSettings.QuickWindowAcrylic = global.QuickWindowAcrylic;
         _appliedSettings.StartupEnabled = global.StartupEnabled;
+        _appliedSettings.MuteComputerWhenConnected = global.MuteComputerWhenConnected;
         Draft.CopyFrom(_appliedSettings);
         ApplyLocalization();
         // 缓存根元素：窗口销毁后访问 Window.Content 会抛 COMException，不能延迟到那时再取。
@@ -220,6 +221,7 @@ public sealed partial class SettingsWindow : Window
             Language = (AppLanguage)_appliedSettings.Language,
             QuickWindowAcrylic = _appliedSettings.QuickWindowAcrylic,
             StartupEnabled = _appliedSettings.StartupEnabled,
+            MuteComputerWhenConnected = _appliedSettings.MuteComputerWhenConnected,
         };
         try
         {
@@ -252,6 +254,8 @@ public sealed partial class SettingsWindow : Window
         LanguageCard.Description = t["Settings.General.LanguageDescription"];
         StartupCard.Header = t["Settings.General.StartupEnabled"];
         StartupCard.Description = t["Settings.General.StartupEnabledDescription"];
+        MuteComputerCard.Header = t["Settings.General.MuteComputerWhenConnected"];
+        MuteComputerCard.Description = t["Settings.General.MuteComputerWhenConnectedDescription"];
         GeneralSaveButton.Content = t["Settings.Save"];
         AppearanceSaveButton.Content = t["Settings.Save"];
         AppearancePageTitle.Text = t["Settings.Appearance.Title"];

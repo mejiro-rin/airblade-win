@@ -2,6 +2,7 @@
 //! 所有导出函数都拦截 Rust panic，不能让异常穿透 DLL 边界。
 
 use crate::{
+    audio::{get_default_render_mute, set_default_render_mute},
     discovery::discover_homepods,
     engine::{ConnectionPolicy, EngineEvent, SenderEngine},
     error::{CoreError, abi_error_code},
@@ -383,6 +384,21 @@ pub unsafe extern "C" fn airplay_event_release(event: *mut AirplayEvent) -> i32 
             return Err(CoreError::InvalidArgument);
         }
         unsafe { event.write(map_event(None)) };
+        Ok(OK)
+    })
+}
+
+#[unsafe(no_mangle)]
+/// 读取当前默认输出设备是否静音：返回 0（未静音）或 1（静音），负数为错误码。
+pub extern "C" fn airplay_system_get_mute() -> i32 {
+    guarded(|| get_default_render_mute().map(|muted| if muted { 1 } else { 0 }))
+}
+
+#[unsafe(no_mangle)]
+/// 设置当前默认输出设备是否静音：0 表示取消静音，非 0 表示静音。
+pub extern "C" fn airplay_system_set_mute(muted: i32) -> i32 {
+    guarded(|| {
+        set_default_render_mute(muted != 0)?;
         Ok(OK)
     })
 }

@@ -54,6 +54,8 @@ public sealed class LocalizationService
         ["Settings.General.LanguageDescription"] = ("选择应用界面显示语言", "Choose the display language of the app"),
         ["Settings.General.StartupEnabled"] = ("开机自启", "Start automatically"),
         ["Settings.General.StartupEnabledDescription"] = ("登录 Windows 后自动启动 AirBlade", "Launch AirBlade automatically when signing in to Windows"),
+        ["Settings.General.MuteComputerWhenConnected"] = ("连接设备后静音电脑", "Mute the computer when connected"),
+        ["Settings.General.MuteComputerWhenConnectedDescription"] = ("连接 AirPlay 设备后自动静音电脑扬声器，断开或退出后恢复（过渡功能）", "Mute the computer speakers when an AirPlay device is connected; restore on disconnect or exit (transitional feature)"),
         ["Settings.Save"] = ("保存", "Save"),
         ["Settings.Appearance.Title"] = ("外观", "Appearance"),
         ["Settings.Appearance.Theme"] = ("常用程序主题", "App theme"),

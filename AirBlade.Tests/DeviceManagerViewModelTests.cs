@@ -259,11 +259,67 @@ public sealed class DeviceManagerViewModelTests
         Assert.IsNull(settings.GetDeviceSettings("office").Address);
     }
 
+    [TestMethod]
+    public async Task 意外断联后按钮回到连接状态且可重新连接()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("office", "书房", "192.168.1.30", 7000)]);
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await using var manager = CreateManager(settings, native);
+        await manager.InitializeAsync();
+        using var viewModel = new DeviceManagerViewModel(manager);
+        await manager.DiscoverAsync();
+        var device = viewModel.Devices.Single();
+        await viewModel.ConnectAsync(device);
+
+        // 播放中意外断联：按钮应从“断开”自动回到“连接”。
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.State, State = AirplaySessionState.Failed });
+        await WaitUntilAsync(() => device.ConnectionState == AirplaySessionState.Failed);
+
+        Assert.AreEqual("\uE768", device.ActionGlyph);
+        Assert.AreEqual("连接", device.ConnectionActionText);
+        Assert.IsTrue(viewModel.ConnectCommand.CanExecute(device));
+        Assert.IsFalse(viewModel.DisconnectCommand.CanExecute(device));
+    }
+
+    [TestMethod]
+    public async Task 自动重连恢复后按钮自动回到断开状态()
+    {
+        var native = new FakeNative();
+        native.DiscoveryRounds.Enqueue([new("office", "书房", "192.168.1.30", 7000)]);
+        await using var settings = new DeviceSettingsService(SettingsPath);
+        await using var manager = CreateManager(settings, native);
+        await manager.InitializeAsync();
+        using var viewModel = new DeviceManagerViewModel(manager);
+        await manager.DiscoverAsync();
+        var device = viewModel.Devices.Single();
+        await viewModel.ConnectAsync(device);
+
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.State, State = AirplaySessionState.Failed });
+        await WaitUntilAsync(() => device.ConnectionState == AirplaySessionState.Failed);
+        Assert.AreEqual("连接", device.ConnectionActionText);
+
+        // 会话自动重连成功：按钮应重新显示“断开”。
+        native.Events.Enqueue(new() { Kind = AirplayEventKind.State, State = AirplaySessionState.Streaming });
+        await WaitUntilAsync(() => device.ConnectionState == AirplaySessionState.Streaming);
+        Assert.AreEqual("\uE769", device.ActionGlyph);
+        Assert.AreEqual("断开", device.ConnectionActionText);
+        Assert.IsFalse(viewModel.ConnectCommand.CanExecute(device));
+        Assert.IsTrue(viewModel.DisconnectCommand.CanExecute(device));
+    }
+
     private static AirplayDeviceManager CreateManager(DeviceSettingsService settings, FakeNative native) => new(settings, new AirplaySessionService(native));
+
+    private static async Task WaitUntilAsync(Func<bool> predicate)
+    {
+        for (var index = 0; index < 50 && !predicate(); index++) await Task.Delay(20);
+        Assert.IsTrue(predicate(), "等待会话事件超时。");
+    }
 
     private sealed class FakeNative : IAirplayCoreNative
     {
         public Queue<IReadOnlyList<AirplayDiscoveredDevice>> DiscoveryRounds { get; } = new();
+        public Queue<AirplayEvent> Events { get; } = new();
         public Task? DiscoveryGate { get; set; }
         public int ConnectResult { get; init; }
         public List<float> SetVolumes { get; } = [];
@@ -273,7 +329,7 @@ public sealed class DeviceManagerViewModelTests
         public int Connect(ulong handle, string endpoint) => ConnectResult;
         public int Disconnect(ulong handle) => 0;
         public int SetVolume(ulong handle, float volumeDb) { SetVolumes.Add(volumeDb); return 0; }
-        public int PollEvent(ulong handle, out AirplayEvent airplayEvent) { airplayEvent = default; return 0; }
+        public int PollEvent(ulong handle, out AirplayEvent airplayEvent) { airplayEvent = Events.Count > 0 ? Events.Dequeue() : default; return 0; }
         public int Destroy(ulong handle) => 0;
         public int Discover(uint timeoutMs, AirplayTargetInfo[] targets, out nuint count)
         {

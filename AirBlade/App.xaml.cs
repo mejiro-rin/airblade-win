@@ -139,6 +139,8 @@ public partial class App : Application
     {
         ApplyGlobalAppearance(settings);
         _settingsWindow?.ApplyTitleBarTheme(settings.Theme);
+        // 设置保存后立即按“连接后静音电脑”开关调整当前系统静音状态。
+        _manager?.RefreshSystemMutePolicy();
         ApplyGlobalLanguage(settings);
     }
 

@@ -68,7 +68,8 @@ public sealed class DeviceManagerViewModel : ObservableObject, IDisposable
     public async Task DisconnectAsync(object? parameter) => await ExecuteOperationAsync(AsDevice(parameter), device => _manager.DisconnectAsync(device.DeviceId));
     public async Task ToggleConnectionAsync(object? parameter) => await ExecuteOperationAsync(AsDevice(parameter), async device =>
     {
-        if (StringComparer.Ordinal.Equals(device.DeviceId, _manager.CurrentConnectedDeviceId)) await _manager.DisconnectAsync(device.DeviceId);
+        if (device.ConnectionState is AirplaySessionState.Pairing or AirplaySessionState.Connecting or AirplaySessionState.Streaming)
+            await _manager.DisconnectAsync(device.DeviceId);
         else await _manager.ConnectAsync(device.DeviceId);
     });
     public async Task SetVolumeAsync(object? parameter)
@@ -106,7 +107,9 @@ public sealed class DeviceManagerViewModel : ObservableObject, IDisposable
         var desiredDevices = new List<DeviceItemViewModel>(snapshots.Length);
         foreach (var snapshot in snapshots)
         {
-            var isCurrentDevice = StringComparer.Ordinal.Equals(snapshot.DeviceId, _manager.CurrentConnectedDeviceId);
+            // 按钮形态由连接状态驱动：活跃连接中显示“断开/暂停”，
+            // 断联或失败后自动回到“连接/播放”，即使会话仍关联该设备（等待自动重连恢复）。
+            var isCurrentDevice = snapshot.ConnectionState is AirplaySessionState.Pairing or AirplaySessionState.Connecting or AirplaySessionState.Streaming;
             if (existing.TryGetValue(snapshot.DeviceId, out var item)) item.Update(snapshot, isCurrentDevice);
             else
             {
@@ -182,11 +185,11 @@ public sealed class DeviceManagerViewModel : ObservableObject, IDisposable
     private bool CanConnect(object? parameter)
     {
         if (IsBusy || parameter is not DeviceItemViewModel device || !device.IsDiscovered) return false;
-        if (StringComparer.Ordinal.Equals(device.DeviceId, _manager.CurrentConnectedDeviceId)) return false;
         return device.ConnectionState is not (AirplaySessionState.Pairing or AirplaySessionState.Connecting or AirplaySessionState.Streaming);
     }
 
-    private bool CanDisconnect(object? parameter) => !IsBusy && parameter is DeviceItemViewModel device && StringComparer.Ordinal.Equals(device.DeviceId, _manager.CurrentConnectedDeviceId);
+    private bool CanDisconnect(object? parameter) => !IsBusy && parameter is DeviceItemViewModel device
+        && device.ConnectionState is AirplaySessionState.Pairing or AirplaySessionState.Connecting or AirplaySessionState.Streaming;
     private bool CanSetVolume(object? parameter) => !IsBusy && parameter is DeviceItemViewModel device && device.IsDiscovered;
     private bool CanToggleConnection(object? parameter) => CanConnect(parameter) || CanDisconnect(parameter);
     private static DeviceItemViewModel? AsDevice(object? parameter) => parameter as DeviceItemViewModel;
