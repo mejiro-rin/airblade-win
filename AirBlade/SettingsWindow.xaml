@@ -8,6 +8,11 @@
     xmlns:converters="using:AirBlade.Converters"
     Title="AirBlade 设置">
 
+    <!--
+      窗口使用 MicaBackdrop（见 code-behind），根元素、标题栏与导航区全部保持透明，
+      由 DWM 直接合成 Mica 背景：既消除首帧黑屏，也让 Mica 效果覆盖整个窗口。
+      卡片与底部操作条仍是纯色，保证内容可读性。
+    -->
     <Grid>
         <Grid.Resources>
             <converters:BoolToOnOffTextConverter x:Key="BoolToOnOffTextConverter" />
@@ -18,7 +23,7 @@
         </Grid.RowDefinitions>
 
         <!-- 自绘标题栏：聚焦/失焦颜色完全由应用按主题控制。 -->
-        <Grid x:Name="TitleBarArea" Grid.Row="0" Background="{ThemeResource SettingsTitleBarBackgroundBrush}">
+        <Grid x:Name="TitleBarArea" Grid.Row="0">
             <TextBlock x:Name="TitleBarTitle" Text="AirBlade 设置" VerticalAlignment="Center" Margin="16,0" FontSize="12" Foreground="{ThemeResource SettingsTitleBarForegroundBrush}" />
         </Grid>
 
@@ -31,7 +36,6 @@
             IsBackButtonVisible="Collapsed"
             IsPaneToggleButtonVisible="False"
             IsSettingsVisible="False"
-            Background="{ThemeResource SettingsBackgroundBrush}"
             SelectionChanged="SettingsNav_SelectionChanged">
 
         <NavigationView.MenuItems>

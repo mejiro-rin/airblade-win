@@ -55,6 +55,9 @@ public sealed partial class SettingsWindow : Window
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _appearanceApplied = appearanceApplied;
         InitializeComponent();
+        // 窗口级 Mica 背景：首帧由 DWM 直接合成，从根源消除“先黑一下”；
+        // 根元素保持透明以露出 Mica（详见 XAML 注释）。
+        SystemBackdrop = new MicaBackdrop();
         var global = _settings.GetGlobalSettings();
         _appliedSettings.AppearanceTheme = global.Theme switch
         {
@@ -373,9 +376,9 @@ public sealed partial class SettingsWindow : Window
     private void UpdateTitleBarState(bool isActive)
     {
         _titleBarActive = isActive;
-        var backgroundKey = isActive ? "SettingsTitleBarBackgroundBrush" : "SettingsTitleBarInactiveBackgroundBrush";
-        TitleBarArea.Background = ThemeBrush(_themeDictionary, backgroundKey)
-            ?? new SolidColorBrush(_themeDictionary == "Dark" ? Windows.UI.Color.FromArgb(255, 40, 40, 40) : Windows.UI.Color.FromArgb(255, 245, 245, 245));
+        // 标题栏区域保持透明以露出窗口级 Mica 背景，不再铺纯色画刷；
+        // 聚焦/失焦差异通过标题文字透明度体现，Mica 自身也会随焦点状态明暗变化。
+        TitleBarArea.Background = null;
         // 图标与标题的前景色完全交给 XAML 的 ThemeResource 按实际主题自动解析，
         // 这里不再直接赋值，避免 code-behind 用错误的主题字典把颜色覆盖成黑色。
         // 失焦时仅通过透明度弱化，不改变颜色本身。

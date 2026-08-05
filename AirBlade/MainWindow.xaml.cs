@@ -51,9 +51,17 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// 切换控制窗口的亚克力效果：开启时根背景变透明以露出亚克力材质，关闭时按当前主题恢复纯色背景。
+    /// 仅在设置值真正变化时才重建 SystemBackdrop；打开设置页会重复调用此方法，
+    /// 若每次都新建 DesktopAcrylicBackdrop，可见窗口的亚克力控制器会被重建并闪黑。
     /// </summary>
     public void ApplyAcrylic(bool enabled)
     {
+        if (_acrylicEnabled == enabled)
+        {
+            // 值未变化时只刷新背景画刷，不重建 SystemBackdrop，避免可见窗口闪黑。
+            RefreshWindowBackground();
+            return;
+        }
         _acrylicEnabled = enabled;
         SystemBackdrop = enabled ? new DesktopAcrylicBackdrop() : null;
         RefreshWindowBackground();

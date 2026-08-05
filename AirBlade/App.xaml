@@ -30,9 +30,10 @@
                     <SolidColorBrush x:Key="SettingsTitleBarPressedBrush" Color="#DCDCDC" />
                     <SolidColorBrush x:Key="SettingsTitleBarForegroundBrush" Color="#1A1A1A" />
                     <SolidColorBrush x:Key="SettingsTitleBarInactiveForegroundBrush" Color="#6B6B6B" />
-                    <SolidColorBrush x:Key="NavigationViewPaneBackground" Color="#F5F5F5" />
-                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="#F5F5F5" />
-                    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#F5F5F5" />
+                    <!-- 设置窗口启用 Mica 后，导航区保持透明以露出窗口级背景。 -->
+                    <SolidColorBrush x:Key="NavigationViewPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
                 </ResourceDictionary>
                 <!-- 暗色模式正式配色 -->
                 <ResourceDictionary x:Key="Dark">
@@ -48,9 +49,10 @@
                     <SolidColorBrush x:Key="SettingsTitleBarPressedBrush" Color="#545454" />
                     <SolidColorBrush x:Key="SettingsTitleBarForegroundBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="SettingsTitleBarInactiveForegroundBrush" Color="#8A8A8A" />
-                    <SolidColorBrush x:Key="NavigationViewPaneBackground" Color="#282828" />
-                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="#282828" />
-                    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#282828" />
+                    <!-- 设置窗口启用 Mica 后，导航区保持透明以露出窗口级背景。 -->
+                    <SolidColorBrush x:Key="NavigationViewPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="Transparent" />
+                    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
