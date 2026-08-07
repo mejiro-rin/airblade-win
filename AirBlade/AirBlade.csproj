@@ -12,18 +12,50 @@
     <Platforms>x64</Platforms>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <PublishProfile>win-$(Platform).pubxml</PublishProfile>
+    <!-- 项目只支持 x64：命令行 dotnet publish 默认会按 AnyCPU 生成 PRI，
+         导致资源索引与 .xbf 不匹配、发布版窗口无法显示，这里强制默认 x64。 -->
+    <Platform Condition="'$(Platform)' == '' or '$(Platform)' == 'AnyCPU'">x64</Platform>
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
+    <!-- 版本号 -->
+    <Version>0.5.0-beta</Version>
+    <AssemblyVersion>0.5.0.0</AssemblyVersion>
+    <FileVersion>0.5.0.0</FileVersion>
 
 	<!-- 强制指定为未打包模式 -->
 	<WindowsPackageType>None</WindowsPackageType>
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="Assets\*.png" />
-    <Content Include="Assets\AppIcon.ico" />
+    <!-- 显式把 XAML 编译器生成的 .xbf 加入发布列表：
+         缺失时构建输出有 .xbf，但 dotnet publish 的发布列表不含它们，
+         导致发布版窗口创建后无法加载 XAML 内容而不可见。 -->
+    <None Include="$(IntermediateOutputPath)App.xbf" Link="App.xbf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+    <None Include="$(IntermediateOutputPath)MainWindow.xbf" Link="MainWindow.xbf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+    <None Include="$(IntermediateOutputPath)SettingsWindow.xbf" Link="SettingsWindow.xbf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+    <None Include="$(IntermediateOutputPath)Controls\SettingItemCard.xbf" Link="Controls\SettingItemCard.xbf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+    <Content Include="Assets\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="Assets\AppIcon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <Content Include="..\THIRD-PARTY-LICENSES.txt" Link="THIRD-PARTY-LICENSES.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
@@ -58,10 +90,13 @@
 
   <!-- Publish Properties -->
   <PropertyGroup>
-    <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
-    <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
-    <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
-    <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
+    <!--
+      WinUI 3 应用不能开剪裁（PublishTrimmed）和 ReadyToRun：
+      剪裁会移除 XAML/WinRT 投影所需的反射元数据导致启动崩溃（0xc000027b），
+      ReadyToRun 生成的 R2R 文件与增量发布的 IL 产物混用会引发类型加载异常。
+    -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>false</PublishReadyToRun>
   </PropertyGroup>
 
   <!-- 自动将 Rust 编译出的 x64 DLL 复制到输出目录。 -->

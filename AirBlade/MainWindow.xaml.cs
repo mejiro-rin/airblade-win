@@ -20,6 +20,8 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer _autoRefreshTimer;
     private readonly DispatcherTimer _autoHideTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private DateTime _lastShownAtUtc = DateTime.MinValue;
+    // 启动时刻：启动后的短暂保护期内不自动隐藏，避免激活竞争失败时窗口一闪即消失。
+    private readonly DateTime _launchedAtUtc = DateTime.UtcNow;
     private bool _positioned;
     private bool _isActive;
     private readonly DispatcherTimer _volumeThrottleTimer = new() { Interval = TimeSpan.FromMilliseconds(150) };
@@ -210,11 +212,14 @@ public sealed partial class MainWindow : Window
         _isActive = args.WindowActivationState != WindowActivationState.Deactivated;
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
+            // 启动后 5 秒内即使失焦也不隐藏，等窗口稳定后再启用失焦自动隐藏。
+            if ((DateTime.UtcNow - _launchedAtUtc).TotalSeconds < 5) return;
             // 窗口刚被托盘唤起时可能先收到一次失焦事件（激活竞争失败），
             // 短暂时间内不自动隐藏，避免“刚显示就消失”的竞态。
             if ((DateTime.UtcNow - _lastShownAtUtc).TotalMilliseconds > 1500) HideToTray();
             return;
         }
+        _lastShownAtUtc = DateTime.UtcNow;
         ConfigureWindowPlacement();
     }
 
@@ -224,6 +229,8 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void OnAutoHideTimerTick(object? sender, object args)
     {
+        // 启动后的保护期内不自动隐藏，保证窗口至少能稳定显示出来。
+        if ((DateTime.UtcNow - _launchedAtUtc).TotalSeconds < 5) return;
         if (!_isActive && AppWindow.IsVisible && (DateTime.UtcNow - _lastShownAtUtc).TotalMilliseconds > 1500)
             HideToTray();
     }

@@ -484,3 +484,6 @@ $RECYCLE.BIN/
 
 # Rust
 target/
+
+# Inno Setup
+/dist
